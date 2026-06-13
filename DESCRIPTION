@@ -1,0 +1,29 @@
+Package: getLattesHtml
+Title: Parse Lattes Curriculum Vitae from HTML Files
+Version: 0.1.0
+Authors@R: person("Francisco Pablo Huascar Aragão", "Pinheiro",
+    email = "pablohuascar@gmail.com", role = c("aut", "cre"))
+Description: Extracts structured data from CNPq Lattes curriculum vitae HTML
+    files. The Brazilian government maintains an extensive base of curricula for
+    academics across the country, documented in the 'Lattes' platform
+    (<http://lattes.cnpq.br/>). This package parses HTML downloads of Lattes
+    curricula and returns tidy tibbles suitable for batch processing with
+    purrr::map() and purrr::list_rbind(). Covers personal data, education,
+    professional activities, publications, advisorships, examination boards,
+    and research projects.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.1.0)
+Imports:
+    purrr,
+    rvest,
+    stringr,
+    tibble,
+    utils,
+    xml2
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
