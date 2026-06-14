@@ -5,13 +5,20 @@
 
   tipo <- stringr::str_match(txt, "\\(([^)]+)\\)")[, 2] |> stringr::str_squish()
 
-  autores_m <- stringr::str_match(txt,
-    "^((?:[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][^a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7\\.]{0,5}[^\\.]+\\.\\s*)+)")
-  autores <- if (!is.na(autores_m[, 2])) stringr::str_squish(autores_m[, 2]) else NA_character_
+  # Separate the author block from the title. In Lattes citation style the
+  # author list is terminated by a lone period surrounded by spaces (" . ").
+  # Author initials such as "F. P. H. A." never have a space *before* the
+  # period, so this split reliably isolates the authors whether names are
+  # abbreviated to initials or spelled out.
+  partes <- stringr::str_split_fixed(txt, "\\s+\\.\\s+", 2)
+  if (nzchar(partes[, 2])) {
+    autores <- stringr::str_squish(partes[, 1])
+    resto   <- partes[, 2]
+  } else {
+    autores <- NA_character_
+    resto   <- txt
+  }
 
-  autores_match <- autores_m[, 1] %||% ""
-  n_match <- nchar(autores_match)
-  resto <- if (n_match > 0) substr(txt, n_match + 1, nchar(txt)) else txt
   titulo_raw <- sub(paste0("\\s*", if (!is.na(ano)) ano else "\\d{4}", ".*$"), "", resto) |>
     stringr::str_squish()
   titulo <- if (nzchar(titulo_raw %||% "")) titulo_raw else NA_character_
