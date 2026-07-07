@@ -5,7 +5,9 @@
   # Members: all text before "Participa\u00e7\u00e3o em banca de"
   m_part <- stringr::str_split_fixed(txt,
     "(?i)Participa[\u00e7c][\u00e3a]o em banca de\\s+", 2)
-  membros_banca <- stringr::str_squish(m_part[, 1])
+  membros_banca <- stringr::str_squish(m_part[, 1]) |>
+    stringr::str_remove("[;,\\s]+$") |>
+    stringr::str_replace("\\.{2,}$", ".")
   resto <- m_part[, 2]
 
   # Candidate: up to the first period after "banca de"

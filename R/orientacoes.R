@@ -6,14 +6,26 @@
   "Orientacoesemandamento", "OrientacoesEmAndamento"
 )
 
+# Anchors of sections that may follow the orientations block; used to stop
+# the "conclu\u00eddas" scan so bancas/eventos entries do not leak in.
+.anchors_pos_orientacoes <- c(
+  "ParticipacaoBancasTrabalho", "BancasTrabalho", "ParticipacaoBancasComissoes",
+  "Bancas", "EventosCongressos", "ParticipacaoEventos", "OrganizacaoEventos",
+  "Eventos", "OutrasInformacoesRelevantes", "PotencialInovacao"
+)
+
 # Helper: collect and classify orientation texts
 .orientacoes_textos <- function(doc, filtro_fn) {
   # Use strict between to avoid mixing em andamento and conclu\u00eddas
   em_and  <- .transforms_entre_strict(doc, .anchors_emandamento, .anchors_concluidas)
-  conclui <- .transforms_apos(doc, .anchors_concluidas)
+  conclui <- .transforms_entre_strict(doc, .anchors_concluidas, .anchors_pos_orientacoes)
 
-  em_and  <- filtro_fn(em_and)
-  conclui <- filtro_fn(conclui)
+  # Banca texts also mention "Disserta\u00e7\u00e3o (Mestrado ...)" etc.; drop them
+  sem_banca <- function(v) purrr::discard(v, ~ stringr::str_detect(.x,
+    stringr::regex("Participa[\u00e7c][\u00e3a]o em banca", ignore_case = TRUE)))
+
+  em_and  <- filtro_fn(sem_banca(em_and))
+  conclui <- filtro_fn(sem_banca(conclui))
 
   list(
     textos   = c(conclui, em_and),
@@ -36,6 +48,9 @@
     tit <- if (pos_tipo > 0) substr(txt1, 1, pos_tipo - 1) else txt1
   }
   tit <- stringr::str_squish(tit)
+  # Drop trailing "In\u00edcio:"/"Ano:" labels left behind when the year was cut off
+  tit <- stringr::str_remove(tit,
+    stringr::regex("[.;,:\\s]*(?:In[\u00edi]cio|Ano)[.;,:\\s]*$", ignore_case = TRUE))
   tit <- stringr::str_replace(tit, "[.;,:\\s]+$", "")
 
   ano <- stringr::str_extract(txt, "\\b[12][0-9]{3}\\b")
@@ -165,7 +180,9 @@ get_orientacoes_pos_doutorado <- function(caminho_html, encoding = "ISO-8859-1")
   titulo <- vapply(txt1, function(t) {
     pos <- regexpr("\\b[12][0-9]{3}\\b", t)
     tit <- if (pos > 0) substr(t, 1, pos - 1) else t
-    stringr::str_squish(stringr::str_replace(tit, "[.;,:\\s]+$", ""))
+    tit <- stringr::str_remove(stringr::str_squish(tit),
+      stringr::regex("[.;,:\\s]*(?:In[\u00edi]cio|Ano)[.;,:\\s]*$", ignore_case = TRUE))
+    stringr::str_replace(tit, "[.;,:\\s]+$", "")
   }, character(1))
 
   inst_m <- stringr::str_match(txts,

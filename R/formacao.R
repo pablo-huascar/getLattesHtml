@@ -45,8 +45,8 @@ get_formacao_graduacao <- function(caminho_html, encoding = "ISO-8859-1") {
 
   tibble::tibble(
     periodo     = periodos,
-    curso       = stringr::str_extract(conteudos,
-      stringr::regex("^(Gradua[\u00e7c][\u00e3a]o|Ensino M[\u00e9e]dio|Aperfei[\u00e7c]oamento|Especializa[\u00e7c][\u00e3a]o)(?:\\s+em\\s+)([^\\.\n]+)", ignore_case = TRUE)) |>
+    curso       = stringr::str_match(conteudos,
+      stringr::regex("^(?:Gradua[\u00e7c][\u00e3a]o|Ensino M[\u00e9e]dio|Aperfei[\u00e7c]oamento|Especializa[\u00e7c][\u00e3a]o)(?:\\s+em\\s+)?([^\\.\n]+)", ignore_case = TRUE))[, 2] |>
       stringr::str_squish(),
     instituicao = stringr::str_match(conteudos,
       "(?i)(?:Gradua[\u00e7c][\u00e3a]o|Ensino M[\u00e9e]dio|Aperfei[\u00e7c]oamento|Especializa[\u00e7c][\u00e3a]o)[^\\n\\.]+\\.\\s*([^,\\.\\n]+)")[, 2] |>
@@ -183,11 +183,12 @@ get_formacao_pos_doutorado <- function(caminho_html, encoding = "ISO-8859-1") {
     )
   }
 
-  conteudos <- pares$t9[nzchar(pares$t9)]
-  if (length(conteudos) == 0) return(na_ret)
+  idx <- which(nzchar(pares$t9))
+  if (length(idx) == 0) return(na_ret)
 
-  periodos <- if (length(pares$t3) >= length(conteudos))
-    pares$t3[seq_along(conteudos)] else rep(NA_character_, length(conteudos))
+  conteudos <- pares$t9[idx]
+  periodos <- if (length(pares$t3) >= max(idx))
+    pares$t3[idx] else rep(NA_character_, length(idx))
 
   tibble::tibble(
     periodo     = periodos,
@@ -220,9 +221,12 @@ get_formacao_complementar <- function(caminho_html, encoding = "ISO-8859-1") {
   pares <- .formacao_pares(doc, "FormacaoComplementar")
   if (length(pares$t9) == 0) return(na_ret)
 
-  conteudos <- pares$t9[nzchar(pares$t9)]
-  periodos  <- if (length(pares$t3) >= length(conteudos))
-    pares$t3[seq_along(conteudos)] else rep(NA_character_, length(conteudos))
+  idx <- which(nzchar(pares$t9))
+  if (length(idx) == 0) return(na_ret)
+
+  conteudos <- pares$t9[idx]
+  periodos  <- if (length(pares$t3) >= max(idx))
+    pares$t3[idx] else rep(NA_character_, length(idx))
 
   tibble::tibble(
     periodo     = periodos,

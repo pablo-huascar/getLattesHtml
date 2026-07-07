@@ -7,6 +7,14 @@ test_that("get_participacao_projeto returns data from example file", {
   expect_true(nrow(res) >= 1L)
 })
 
+test_that("get_participacao_projeto splits the labelled fields", {
+  res <- get_participacao_projeto(html)
+  expect_equal(res$descricao[1], "Estudo sobre identidade em grupos minorizados.")
+  expect_equal(res$situacao[1], "Em andamento")
+  expect_equal(res$natureza[1], "Pesquisa")
+  expect_equal(res$integrantes[1], "Joana Ferreira - Coordenadora.")
+})
+
 test_that("get_producao_tecnica returns a tibble", {
   res <- get_producao_tecnica(html)
   expect_s3_class(res, "tbl_df")

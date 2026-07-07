@@ -7,6 +7,12 @@ test_that("get_formacao_graduacao returns expected columns and data", {
   expect_true(nrow(res) >= 1L)
 })
 
+test_that("curso column is consistent across formacao levels (no level prefix)", {
+  expect_equal(get_formacao_graduacao(html)$curso[1], "Psicologia")
+  expect_equal(get_formacao_mestrado(html)$curso[1], "Psicologia")
+  expect_equal(get_formacao_doutorado(html)$curso[1], "Psicologia")
+})
+
 test_that("get_formacao_mestrado returns expected columns and data", {
   res <- get_formacao_mestrado(html)
   expect_s3_class(res, "tbl_df")

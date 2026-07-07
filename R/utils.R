@@ -42,14 +42,8 @@
 # Get span.transform texts after named anchor(s), up to optional stop anchor(s)
 .transforms_entre <- function(doc, pre_anchors, pos_anchors = NULL) {
   if (!is.null(pos_anchors)) {
-    pre_sel <- paste(sprintf("@name='%s'", pre_anchors), collapse = " or ")
-    pos_sel <- paste(sprintf("@name='%s'", pos_anchors), collapse = " or ")
-    xp <- sprintf(
-      "//span[contains(@class,'transform')][preceding::a[%s] and following::a[%s]]",
-      pre_sel, pos_sel
-    )
-    textos <- doc |> rvest::html_elements(xpath = xp) |> rvest::html_text2()
-    if (length(textos) > 0) return(unique(textos))
+    textos <- .transforms_entre_strict(doc, pre_anchors, pos_anchors)
+    if (length(textos) > 0) return(textos)
   }
   .transforms_apos(doc, pre_anchors)
 }
@@ -129,6 +123,8 @@
     kv <- strsplit(p, "=", fixed = TRUE)[[1]]
     if (length(kv) >= 1 && nzchar(kv[[1]])) {
       val <- if (length(kv) >= 2) paste(kv[-1], collapse = "=") else ""
+      # In query strings "+" encodes a space; URLdecode does not handle it
+      val <- gsub("+", " ", val, fixed = TRUE)
       result[[kv[[1]]]] <- tryCatch(
         utils::URLdecode(val),
         error = function(e) val

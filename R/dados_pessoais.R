@@ -60,8 +60,7 @@ get_dados_gerais <- function(caminho_html, encoding = "ISO-8859-1") {
     stringr::str_split(cit_raw, ";")[[1]] |> stringr::str_trim() |> (\(v) v[nzchar(v)])()
   } else character(0)
 
-  orcid_txt <- fetch_label(secao_id, "Orcid iD") %||%
-    fetch_label(secao_id, "Orcid iD ")
+  orcid_txt <- fetch_label(secao_id, "Orcid iD")
   orcid <- stringr::str_extract(orcid_txt %||% NA_character_, "https?://\\S+")
 
   pais_nacionalidade <- .nz(fetch_label(secao_id, "Pa\u00eds de Nacionalidade"))

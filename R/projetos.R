@@ -76,20 +76,26 @@ get_participacao_projeto <- function(caminho_html, encoding = "ISO-8859-1") {
     txts9 <- nos9 |> rvest::html_text2() |> stringr::str_squish()
     txts9 <- txts9[nzchar(txts9)]
 
-    # Classify cell-9 blocks
-    desc_txt <- txts9[stringr::str_detect(txts9, stringr::regex("Descri[\u00e7c][\u00e3a]o", ignore_case = TRUE))][1]
-    sit_txt  <- txts9[stringr::str_detect(txts9, stringr::regex("Situa[\u00e7c][\u00e3a]o", ignore_case = TRUE))][1]
-    nat_txt  <- txts9[stringr::str_detect(txts9, stringr::regex("Natureza", ignore_case = TRUE))][1]
-    int_txt  <- txts9[stringr::str_detect(txts9, stringr::regex("Integrantes|Membros", ignore_case = TRUE))][1]
+    # All labels may share a single cell-9 block ("Descri\u00e7\u00e3o: ... Situa\u00e7\u00e3o: ...;
+    # Natureza: .... Integrantes: ..."), so extract each value up to the next label.
+    rotulos <- paste0(
+      "Descri[\u00e7c][\u00e3a]o|Situa[\u00e7c][\u00e3a]o|Natureza|",
+      "Integrantes|Membros|Financiador(?:es)?|N[\u00fau]mero de produ[\u00e7c][\u00f5o]es"
+    )
+    pega_campo <- function(rotulo, strip = "[;\\s]+$") {
+      bloco <- txts9[stringr::str_detect(txts9,
+        stringr::regex(paste0(rotulo, ":"), ignore_case = TRUE))][1]
+      if (is.na(bloco %||% NA_character_)) return(NA_character_)
+      m <- stringr::str_match(bloco, stringr::regex(paste0(
+        rotulo, ":\\s*(.*?)(?=\\s*\\b(?:", rotulos, ")\\s*:|$)"
+      ), ignore_case = TRUE))
+      .nz(stringr::str_remove(stringr::str_squish(m[, 2]), strip))
+    }
 
-    descricoes[i]    <- stringr::str_remove(desc_txt %||% NA_character_,
-      stringr::regex("^Descri[\u00e7c][\u00e3a]o:\\s*", ignore_case = TRUE)) |> stringr::str_squish()
-    situacoes[i]     <- stringr::str_remove(sit_txt %||% NA_character_,
-      stringr::regex("^Situa[\u00e7c][\u00e3a]o:\\s*", ignore_case = TRUE)) |> stringr::str_squish()
-    naturezas[i]     <- stringr::str_remove(nat_txt %||% NA_character_,
-      stringr::regex("^Natureza:\\s*", ignore_case = TRUE)) |> stringr::str_squish()
-    integrantes_v[i] <- stringr::str_remove(int_txt %||% NA_character_,
-      stringr::regex("^Integrantes:\\s*", ignore_case = TRUE)) |> stringr::str_squish()
+    descricoes[i]    <- pega_campo("Descri[\u00e7c][\u00e3a]o")
+    situacoes[i]     <- pega_campo("Situa[\u00e7c][\u00e3a]o", strip = "[;.\\s]+$")
+    naturezas[i]     <- pega_campo("Natureza", strip = "[;.\\s]+$")
+    integrantes_v[i] <- pega_campo("(?:Integrantes|Membros)")
   }
 
   tibble::tibble(
