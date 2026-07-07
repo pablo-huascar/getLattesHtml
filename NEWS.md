@@ -1,6 +1,6 @@
 # getLattesHtml 0.1.0
 
-* Initial CRAN release.
+* First public release on GitHub.
 * 30 functions covering all major sections of the Lattes HTML curriculum:
   personal data, education, professional activities, publications (articles,
   books, book chapters), conference papers, advisorships, examination boards,

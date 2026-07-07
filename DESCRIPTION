@@ -12,6 +12,8 @@ Description: Extracts structured data from CNPq Lattes curriculum vitae HTML
     professional activities, publications, advisorships, examination boards,
     and research projects.
 License: MIT + file LICENSE
+URL: https://github.com/pablo-huascar/getLattesHtml
+BugReports: https://github.com/pablo-huascar/getLattesHtml/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
