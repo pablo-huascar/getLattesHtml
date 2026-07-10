@@ -1,78 +1,91 @@
-# Helper: parse a livro/cap\u00edtulo span.transform text
+# Split "TITULO. N ed. CIDADE: EDITORA, ANO ..." into title and tail.
+# The title runs up to the edition marker; without one, up to the
+# "CIDADE: EDITORA, ANO" block.
+.split_titulo_publicacao <- function(txt) {
+  loc <- stringr::str_locate(txt, .ed_regex)
+  if (!is.na(loc[1, 1])) {
+    titulo <- stringr::str_sub(txt, 1, loc[1, 1] - 1)
+    cauda  <- stringr::str_sub(txt, loc[1, 2] + 1)
+  } else {
+    m <- stringr::str_match(txt, "^(.*?)\\s*\\.\\s*([^:,]*:\\s*[^,]*,\\s*(?:1[89]|20)\\d{2}.*)$")
+    if (!is.na(m[, 1])) {
+      titulo <- m[, 2]
+      cauda  <- m[, 3]
+    } else {
+      titulo <- txt
+      cauda  <- ""
+    }
+  }
+  titulo <- stringr::str_squish(stringr::str_remove(titulo, "[.,;\\s]+$"))
+  if (!nzchar(titulo)) titulo <- NA_character_
+  c(titulo = titulo, cauda = cauda)
+}
+
+# Helper: parse a livro span.transform text
+# "AUTORES (Org.) . Titulo do livro. N. ed. Cidade: Editora, ANO. v. X. NNNp ."
 .parse_livro <- function(txt) {
-  # Remove leading counter "N. " if present
   txt <- stringr::str_remove(txt, "^\\d+\\.\\s*")
 
-  ano <- .parse_ano(txt)
+  at      <- .split_autores_titulo(txt)
+  autores <- at[["autores"]]
 
-  # Edition marker: "N. ed." splits autores+titulo from publisher info
-  m_ed <- stringr::str_match(txt, "(\\d+[a\u00aa]?)\\.\\s*ed\\.")
-  edicao <- if (!is.na(m_ed[, 1])) m_ed[, 2] else NA_character_
+  edicao <- stringr::str_match(at[["resto"]], .ed_regex)[, 2]
 
-  # Split on ". N. ed." to get left (autores . titulo) and right (city: publisher, year)
-  partes <- if (!is.na(m_ed[, 1])) {
-    stringr::str_split_fixed(txt, paste0(m_ed[, 1], "\\.\\s*ed\\."), 2)
-  } else {
-    matrix(c(txt, ""), nrow = 1)
-  }
+  tt     <- .split_titulo_publicacao(at[["resto"]])
+  titulo <- tt[["titulo"]]
 
-  esquerda <- partes[, 1]
-  direita   <- partes[, 2]
-
-  # In "esquerda": autores end at last ". " before mixed-case title
-  # Heuristic: find the split between UPPERCASE author block and title
-  m_split <- stringr::str_match(esquerda,
-    "^((?:[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][^a-z]{0,3}[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][^\\.]+\\.\\s*(?:\\([^)]+\\)\\.\\s*)?)+?)([A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7].+)$"
-  )
-
-  autores <- if (!is.na(m_split[, 2])) stringr::str_squish(m_split[, 2]) else NA_character_
-  titulo  <- if (!is.na(m_split[, 3])) stringr::str_squish(m_split[, 3]) else
-    stringr::str_squish(esquerda)
-
-  # Parse right side: "CIDADE: EDITORA, ANO."
-  m_pub <- stringr::str_match(direita, "^\\s*([^:]+):\\s*([^,]+),\\s*(\\d{4})")
-  cidade  <- if (!is.na(m_pub[, 2])) stringr::str_squish(m_pub[, 2]) else NA_character_
-  editora <- if (!is.na(m_pub[, 3])) stringr::str_squish(m_pub[, 3]) else NA_character_
+  pub     <- .parse_pub(tt[["cauda"]])
+  cidade  <- pub[["cidade"]]
+  editora <- pub[["editora"]]
+  ano     <- pub[["ano"]]
+  if (is.na(ano)) ano <- .parse_ano(tt[["cauda"]])
+  if (is.na(ano)) ano <- .parse_ano(txt)
 
   c(autores = autores, titulo = titulo, edicao = edicao,
     editora = editora, cidade = cidade, ano = ano)
 }
 
+# "AUTORES . Titulo do capitulo. In: ORGANIZADORES. (Org.). Titulo do livro.
+#  Ned.Cidade: Editora, ANO, v. X, p. A-B."
 .parse_capitulo <- function(txt) {
   txt <- stringr::str_remove(txt, "^\\d+\\.\\s*")
-  ano <- .parse_ano(txt)
 
   # Split on "In:" to separate chapter info from book info
   partes <- stringr::str_split_fixed(txt, "\\bIn:\\s*", 2)
-  cap_parte  <- partes[, 1]
+  cap_parte   <- partes[, 1]
   livro_parte <- partes[, 2]
 
-  # Cap: autores. titulo_capitulo.
-  m_cap <- stringr::str_match(cap_parte,
-    "^((?:[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][^\\.]+\\.\\s*(?:\\([^)]+\\)\\.\\s*)?)+?)([A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7].+\\.?)$"
-  )
-  autores        <- if (!is.na(m_cap[, 2])) stringr::str_squish(m_cap[, 2]) else NA_character_
-  titulo_capitulo <- if (!is.na(m_cap[, 3])) stringr::str_squish(m_cap[, 3]) else
-    stringr::str_squish(cap_parte)
+  at             <- .split_autores_titulo(cap_parte)
+  autores        <- at[["autores"]]
+  titulo_capitulo <- stringr::str_squish(stringr::str_remove(at[["resto"]], "[.\\s]+$"))
+  if (!nzchar(titulo_capitulo)) titulo_capitulo <- NA_character_
 
-  # Livro: ORG (Org.). TITULO_LIVRO. N. ed. CIDADE: EDITORA, ANO, p. X-Y.
-  m_tl <- stringr::str_match(livro_parte, "\\.\\s*([A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c2\u00ca\u00d4\u00c0\u00c7][^\\(]+)\\.")
-  titulo_livro <- if (!is.na(m_tl[, 2])) stringr::str_squish(m_tl[, 2]) else NA_character_
+  # Organizadores: everything before "(Org.)"
+  m_org <- stringr::str_match(livro_parte, "^(.*?)\\s*[.;,]?\\s*\\(Orgs?\\.?\\)\\s*\\.?")
+  if (!is.na(m_org[, 1])) {
+    organizadores <- stringr::str_squish(m_org[, 2])
+    if (!nzchar(organizadores)) organizadores <- NA_character_
+    resto <- stringr::str_sub(livro_parte, nchar(m_org[, 1]) + 1)
+  } else {
+    organizadores <- NA_character_
+    resto <- livro_parte
+  }
 
-  m_pag <- stringr::str_match(livro_parte, "p\\.\\s*(\\d+)-(\\d+)")
+  edicao <- stringr::str_match(resto, .ed_regex)[, 2]
+
+  tt           <- .split_titulo_publicacao(stringr::str_squish(resto))
+  titulo_livro <- tt[["titulo"]]
+
+  pub     <- .parse_pub(tt[["cauda"]])
+  cidade  <- pub[["cidade"]]
+  editora <- pub[["editora"]]
+  ano     <- pub[["ano"]]
+  if (is.na(ano)) ano <- .parse_ano(tt[["cauda"]])
+  if (is.na(ano)) ano <- .parse_ano(livro_parte)
+
+  m_pag <- stringr::str_match(livro_parte, "p\\.\\s*(\\d+)\\s*-\\s*(\\d+)?")
   pagina_inicial <- if (!is.na(m_pag[, 2])) m_pag[, 2] else NA_character_
   pagina_final   <- if (!is.na(m_pag[, 3])) m_pag[, 3] else NA_character_
-
-  m_ed  <- stringr::str_match(livro_parte, "(\\d+[a\u00aa]?)\\.\\s*ed\\.")
-  edicao <- if (!is.na(m_ed[, 2])) m_ed[, 2] else NA_character_
-
-  m_pub <- stringr::str_match(livro_parte, "(\\d+[a\u00aa]?)\\.\\s*ed\\.\\s*([^:]+):\\s*([^,]+),\\s*(\\d{4})")
-  cidade  <- if (!is.na(m_pub[, 3])) stringr::str_squish(m_pub[, 3]) else NA_character_
-  editora <- if (!is.na(m_pub[, 4])) stringr::str_squish(m_pub[, 4]) else NA_character_
-
-  organizadores_m <- stringr::str_match(livro_parte, "^([^.]+\\(Org\\.\\)[^.]*)")
-  organizadores <- if (!is.na(organizadores_m[, 2])) stringr::str_squish(organizadores_m[, 2]) else
-    NA_character_
 
   c(autores = autores, titulo_capitulo = titulo_capitulo,
     titulo_livro = titulo_livro, organizadores = organizadores,
@@ -106,7 +119,7 @@ get_livros_publicados <- function(caminho_html, encoding = "ISO-8859-1") {
         "ProducaoBibliografica", "ProducaoTecnica"))
     if (length(txts) == 0) return(na_ret)
     # Keep only entries that look like books (have "ed." and no "In:")
-    txts <- txts[stringr::str_detect(txts, "\\.\\s*ed\\.") &
+    txts <- txts[stringr::str_detect(txts, .ed_regex) &
                    !stringr::str_detect(txts, "\\bIn:\\s*")]
   }
 

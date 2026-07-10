@@ -147,6 +147,38 @@
   stringr::str_extract(txt, "\\b(1[89]|20)\\d{2}\\b")
 }
 
+# Split "AUTORES . Titulo ..." at the boundary between the author block and
+# what follows. The boundary is the first standalone " . " (Lattes closes the
+# author list with a spaced period) or, for a single author written in full
+# ("PINHEIRO, Francisco Pablo Huascar Aragao. Titulo"), the first period that
+# follows a lowercase letter.
+.split_autores_titulo <- function(txt) {
+  loc <- stringr::str_locate(
+    txt,
+    "\\s+\\.\\s+|(?<=[a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7])\\.\\s+"
+  )
+  if (is.na(loc[1, 1])) {
+    return(c(autores = NA_character_, resto = stringr::str_squish(txt)))
+  }
+  autores <- stringr::str_sub(txt, 1, loc[1, 1] - 1)
+  resto   <- stringr::str_sub(txt, loc[1, 2] + 1)
+  autores <- stringr::str_squish(stringr::str_remove(autores, "[.;\\s]+$"))
+  if (!nzchar(autores)) autores <- NA_character_
+  c(autores = autores, resto = stringr::str_squish(resto))
+}
+
+# Edition marker as Lattes prints it: "1. ed.", "1ed.", "1a ed." etc.
+.ed_regex <- "(\\d+)\\s*[a\u00aa\u00b0]?\\s*\\.?\\s*[Ee]d\\."
+
+# Parse "CIDADE: EDITORA, ANO" (any part may be empty)
+.parse_pub <- function(txt) {
+  m <- stringr::str_match(txt, "^\\s*[.,]?\\s*([^:,]*?)\\s*:\\s*([^,]*?)\\s*,\\s*((?:1[89]|20)\\d{2})")
+  cidade  <- if (!is.na(m[, 2]) && nzchar(m[, 2])) stringr::str_squish(m[, 2]) else NA_character_
+  editora <- if (!is.na(m[, 3]) && nzchar(m[, 3])) stringr::str_squish(m[, 3]) else NA_character_
+  ano     <- if (!is.na(m[, 4])) m[, 4] else NA_character_
+  c(cidade = cidade, editora = editora, ano = ano)
+}
+
 .fix_len <- function(v, n) {
   length(v) <- n
   unname(v)
