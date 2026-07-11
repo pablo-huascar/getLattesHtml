@@ -101,18 +101,30 @@
   character(0)
 }
 
-# Strict between-anchors: spans after pre_anchors but before any pos_anchor.
-# Uses not(preceding::a[stop]) — correct for OR-list stops.
-# Contrast: following::a[A or B] is WRONG because a span past stop A
-# still satisfies following::a[B] if B appears later.
+# Strict between-anchors: spans after the first pre_anchor and before the
+# first pos_anchor that occurs AFTER it. A pos_anchor placed earlier in the
+# document (e.g. "Bancas" before "Orientacoesconcluidas") must not stop the
+# scan, so the stop node is resolved from the pre node's following axis.
 .transforms_entre_strict <- function(doc, pre_anchors, pos_anchors) {
   pre_sel <- paste(sprintf("@name='%s'", pre_anchors), collapse = " or ")
-  pos_sel <- paste(sprintf("@name='%s'", pos_anchors), collapse = " or ")
-  xp <- sprintf(
-    "//span[contains(@class,'transform')][preceding::a[%s] and not(preceding::a[%s])]",
-    pre_sel, pos_sel
+  pre_node <- xml2::xml_find_first(doc, sprintf("//a[%s]", pre_sel))
+  if (inherits(pre_node, "xml_missing")) return(character(0))
+
+  spans <- xml2::xml_find_all(
+    pre_node, "following::span[contains(@class,'transform')]"
   )
-  doc |> rvest::html_elements(xpath = xp) |> rvest::html_text2() |> unique()
+  if (length(spans) == 0) return(character(0))
+
+  pos_sel <- paste(sprintf("@name='%s'", pos_anchors), collapse = " or ")
+  stop_node <- xml2::xml_find_first(pre_node, sprintf("following::a[%s]", pos_sel))
+  if (!inherits(stop_node, "xml_missing")) {
+    depois <- xml2::xml_find_all(
+      stop_node, "following::span[contains(@class,'transform')]"
+    )
+    spans <- spans[!(xml2::xml_path(spans) %in% xml2::xml_path(depois))]
+  }
+
+  spans |> rvest::html_text2() |> unique()
 }
 
 # Parse cvuri URL-encoded query string from Lattes article spans
