@@ -93,8 +93,9 @@ get_artigos_publicados <- function(caminho_html, encoding = "ISO-8859-1") {
 
 #' Extract articles accepted for publication
 #'
-#' The Lattes HTML format does not expose accepted-not-yet-published articles
-#' as a separate section. This function always returns a single-row NA tibble.
+#' Parses the "Artigos aceitos para publicação" section. Accepted
+#' articles carry fewer fields than published ones (usually no volume, issue,
+#' or pages yet).
 #'
 #' @inheritParams get_id
 #' @return A tibble with the same columns as [get_artigos_publicados()].
@@ -105,11 +106,102 @@ get_artigos_publicados <- function(caminho_html, encoding = "ISO-8859-1") {
 get_artigos_aceitos <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
-  tibble::tibble(
+
+  na_ret <- tibble::tibble(
     ano = NA_character_, titulo = NA_character_,
     issn = NA_character_, periodico = NA_character_,
     volume = NA_character_, numero = NA_character_,
     pagina_inicial = NA_character_, pagina_final = NA_character_,
     doi = NA_character_, id_lattes = id_lattes
+  )
+
+  spans <- .spans_entre_strict(doc, "ArtigosAceitos",
+    c("LivrosCapitulos", "TextosJornaisRevistas",
+      "TrabalhosPublicadosAnaisCongresso", "ApresentacoesTrabalho",
+      "OutrasProducoesBibliograficas", "ProducaoTecnica"))
+  if (length(spans) == 0) return(na_ret)
+
+  registros <- lapply(spans, .parse_artigo_aceito)
+  registros <- registros[!duplicated(sapply(registros, `[[`, "chave"))]
+
+  tibble::tibble(
+    ano            = sapply(registros, `[[`, "ano"),
+    titulo         = sapply(registros, `[[`, "titulo"),
+    issn           = sapply(registros, `[[`, "issn"),
+    periodico      = sapply(registros, `[[`, "periodico"),
+    volume         = sapply(registros, `[[`, "volume"),
+    numero         = sapply(registros, `[[`, "numero"),
+    pagina_inicial = sapply(registros, `[[`, "pagina_inicial"),
+    pagina_final   = sapply(registros, `[[`, "pagina_final"),
+    doi            = sapply(registros, `[[`, "doi"),
+    id_lattes      = rep(id_lattes, length(registros))
+  )
+}
+
+# Position of the last "." outside parentheses, or NA if none
+.ultimo_ponto_fora_parens <- function(x) {
+  chars <- strsplit(x, "", fixed = TRUE)[[1]]
+  prof <- 0L
+  pos <- NA_integer_
+  for (i in seq_along(chars)) {
+    ch <- chars[[i]]
+    if (ch == "(") {
+      prof <- prof + 1L
+    } else if (ch == ")" && prof > 0L) {
+      prof <- prof - 1L
+    } else if (ch == "." && prof == 0L) {
+      pos <- i
+    }
+  }
+  pos
+}
+
+# Parse one accepted-article span:
+# "AUTORES . Titulo. PERIODICO, ANO." (ISSN comes from the JCR img attribute)
+.parse_artigo_aceito <- function(span) {
+  txt <- span |> rvest::html_text2() |> stringr::str_squish()
+
+  issn_nd <- xml2::xml_find_first(span, ".//img[@data-issn]")
+  issn <- if (inherits(issn_nd, "xml_missing")) NA_character_ else
+    xml2::xml_attr(issn_nd, "data-issn")
+
+  doi_nd <- xml2::xml_find_first(span, ".//a[contains(@class,'icone-doi')]")
+  doi <- if (inherits(doi_nd, "xml_missing")) NA_character_ else
+    stringr::str_remove(xml2::xml_attr(doi_nd, "href") %||% "",
+                        "https?://(?:dx\\.)?doi\\.org/")
+
+  resto <- .split_autores_titulo(txt)[["resto"]]
+
+  # Tail: "TITULO. PERIODICO, ANO." — the split between titulo and periodico
+  # is the last period outside parentheses, so journal names such as
+  # "PSICO (PUCRS. ONLINE)" stay whole.
+  m_ano <- stringr::str_match(resto, ",\\s*((?:1[89]|20)\\d{2})\\s*\\.?\\s*$")
+  if (!is.na(m_ano[, 2])) {
+    ano   <- m_ano[, 2]
+    corpo <- stringr::str_remove(resto, ",\\s*(?:1[89]|20)\\d{2}\\s*\\.?\\s*$")
+    pos   <- .ultimo_ponto_fora_parens(corpo)
+    if (!is.na(pos)) {
+      titulo    <- stringr::str_sub(corpo, 1, pos - 1)
+      periodico <- stringr::str_sub(corpo, pos + 1)
+    } else {
+      titulo    <- corpo
+      periodico <- NA_character_
+    }
+    titulo    <- stringr::str_squish(titulo)
+    periodico <- .nz(stringr::str_squish(periodico))
+  } else {
+    titulo    <- stringr::str_squish(stringr::str_remove(resto, "[.\\s]+$"))
+    periodico <- NA_character_
+    ano       <- .parse_ano(resto)
+  }
+
+  list(
+    chave = txt, ano = ano, titulo = titulo, issn = issn,
+    periodico = periodico,
+    volume         = stringr::str_match(txt, "(?i)\\bv\\.\\s*(\\d+)")[, 2],
+    numero         = stringr::str_match(txt, "(?i)\\bn\\.\\s*(\\d+)")[, 2],
+    pagina_inicial = stringr::str_match(txt, "p\\.\\s*(\\d+)-")[, 2],
+    pagina_final   = stringr::str_match(txt, "p\\.\\s*\\d+-(\\d+)")[, 2],
+    doi = doi
   )
 }

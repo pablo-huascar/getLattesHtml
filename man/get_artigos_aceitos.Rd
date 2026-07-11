@@ -15,8 +15,9 @@ get_artigos_aceitos(caminho_html, encoding = "ISO-8859-1")
 A tibble with the same columns as \code{\link[=get_artigos_publicados]{get_artigos_publicados()}}.
 }
 \description{
-The Lattes HTML format does not expose accepted-not-yet-published articles
-as a separate section. This function always returns a single-row NA tibble.
+Parses the "Artigos aceitos para publicação" section. Accepted
+articles carry fewer fields than published ones (usually no volume, issue,
+or pages yet).
 }
 \examples{
 html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")

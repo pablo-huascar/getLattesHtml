@@ -1,3 +1,28 @@
+# Canonical tail of a banca entry: "ANO. TIPO (PROGRAMA) - INSTITUICAO."
+# Anchoring on the year avoids matching words like "trabalhadores (as)" inside
+# the title. The LAST such match is taken because titles may contain years.
+# PROGRAMA allows one level of nested parentheses:
+# "(Doutorado em Psicologia (Psicologia Social))".
+.banca_segmento <- function(txt) {
+  m <- stringr::str_match_all(txt, paste0(
+    "\\b((?:1[89]|20)\\d{2})\\.\\s*",          # ano
+    "([^().]*?)\\s*",                          # tipo
+    "\\(((?:[^()]|\\([^()]*\\))*)\\)\\s*",     # programa
+    "(?:[-\u2013\u2014]\\s*([^.;\\n]+))?"      # instituicao
+  ))[[1]]
+  if (nrow(m) == 0) {
+    return(c(ano = NA_character_, tipo = NA_character_,
+             programa = NA_character_, instituicao = NA_character_,
+             inicio = NA_character_))
+  }
+  m <- m[nrow(m), ]
+  pos <- stringr::str_locate(txt, stringr::fixed(m[1]))[1, 1]
+  c(ano = m[2], tipo = .nz(stringr::str_squish(m[3])),
+    programa = .nz(stringr::str_squish(m[4])),
+    instituicao = .nz(stringr::str_squish(m[5] %||% NA_character_)),
+    inicio = as.character(pos))
+}
+
 # Helper: parse one banca span.transform text
 .parse_banca <- function(txt) {
   txt <- stringr::str_squish(txt)
@@ -15,33 +40,52 @@
   candidato <- if (!is.na(candidato_m[, 2])) stringr::str_squish(candidato_m[, 2]) else NA_character_
   resto2 <- sub("^[^\\.]+\\.\\s*", "", resto)
 
-  # Year
-  ano <- .parse_ano(txt)
+  seg <- .banca_segmento(txt)
+  ano         <- if (!is.na(seg[["ano"]])) seg[["ano"]] else .parse_ano(txt)
+  tipo        <- seg[["tipo"]]
+  programa    <- seg[["programa"]]
+  instituicao <- seg[["instituicao"]]
 
-  # Titulo: between candidato and year
-  titulo <- sub(paste0("\\s*\\.?\\s*", ano %||% "\\d{4}", ".*$"), "", resto2) |>
-    stringr::str_squish()
-
-  # Type: content of first parenthetical after year
-  tipo_m <- stringr::str_match(txt, "(?i)\\b\\d{4}\\.\\s*(Disserta\\w*|Tese|Monografia|Trabalho[^(]+)\\s*\\(")
-  tipo <- if (!is.na(tipo_m[, 2])) stringr::str_squish(tipo_m[, 2]) else {
-    stringr::str_match(txt, "(?i)(Disserta\\w*|Tese|Monografia|Trabalho[^(]+)\\s*\\(")[, 2] |>
-      stringr::str_squish()
+  # Titulo: between candidato and the "ANO. TIPO (...)" tail
+  if (!is.na(seg[["inicio"]])) {
+    corte <- as.integer(seg[["inicio"]]) - (nchar(txt) - nchar(resto2)) - 1L
+    titulo <- if (corte > 0) stringr::str_sub(resto2, 1, corte) else resto2
+  } else {
+    titulo <- sub(paste0("\\s*\\.?\\s*", ano %||% "\\d{4}", ".*$"), "", resto2)
   }
-
-  # Program: content inside parentheses after tipo
-  prog_m <- stringr::str_match(txt,
-    "(?i)(?:Disserta\\w*|Tese|Monografia|Trabalho[^(]+)\\s*\\(([^)]+)\\)")
-  programa <- if (!is.na(prog_m[, 2])) stringr::str_squish(prog_m[, 2]) else NA_character_
-
-  # Institution: after ")" + "-" pattern
-  inst_m <- stringr::str_match(txt,
-    "(?i)(?:Disserta\\w*|Tese|Monografia|Trabalho[^(]+)\\s*\\([^)]+\\)\\s*[-\u2013\u2014]\\s*([^.;,\\n]+)")
-  instituicao <- if (!is.na(inst_m[, 2])) stringr::str_squish(inst_m[, 2]) else NA_character_
+  titulo <- stringr::str_squish(stringr::str_remove(titulo, "[.\\s]+$"))
 
   c(membros_banca = membros_banca, candidato = candidato,
     titulo = titulo, ano = ano, tipo = tipo,
     programa = programa, instituicao = instituicao)
+}
+
+# Classify a banca entry by the PROGRAMA of its canonical tail, so that
+# "Exame de qualifica\u00e7\u00e3o (Doutorando em ...)" counts as doutorado and
+# "P\u00f3s-Gradua\u00e7\u00e3o" inside the program name does not leak into
+# gradua\u00e7\u00e3o.
+.banca_natureza <- function(txt) {
+  seg <- .banca_segmento(txt)
+  programa <- seg[["programa"]]
+  tipo     <- seg[["tipo"]]
+  if (is.na(programa)) programa <- ""
+  if (is.na(tipo)) tipo <- ""
+
+  if (stringr::str_detect(programa, stringr::regex("^Doutor", ignore_case = TRUE)) ||
+      stringr::str_detect(tipo, stringr::regex("^Tese", ignore_case = TRUE))) {
+    return("doutorado")
+  }
+  if (stringr::str_detect(programa, stringr::regex("^Mestr", ignore_case = TRUE)) ||
+      stringr::str_detect(tipo, stringr::regex("^Disserta", ignore_case = TRUE))) {
+    return("mestrado")
+  }
+  if (stringr::str_detect(programa,
+        stringr::regex("^(Gradua|Aperfei|Especializa)", ignore_case = TRUE)) ||
+      stringr::str_detect(tipo,
+        stringr::regex("Monografia|Conclus[\u00e3a]o", ignore_case = TRUE))) {
+    return("graduacao")
+  }
+  NA_character_
 }
 
 .bancas_do_tipo <- function(doc, id_lattes, filtro_fn) {
@@ -88,8 +132,7 @@ get_bancas_doutorado <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  filtro <- function(v) purrr::keep(v, ~ stringr::str_detect(.x,
-    stringr::regex("Tese\\s*\\(.*?Doutorad|doutorado|doutoral", ignore_case = TRUE)))
+  filtro <- function(v) purrr::keep(v, ~ identical(.banca_natureza(.x), "doutorado"))
 
   .bancas_do_tipo(doc, id_lattes, filtro)
 }
@@ -107,8 +150,7 @@ get_bancas_mestrado <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  filtro <- function(v) purrr::keep(v, ~ stringr::str_detect(.x,
-    stringr::regex("Disserta\\w+\\s*\\([^)]*Mestrad", ignore_case = TRUE)))
+  filtro <- function(v) purrr::keep(v, ~ identical(.banca_natureza(.x), "mestrado"))
 
   .bancas_do_tipo(doc, id_lattes, filtro)
 }
@@ -128,12 +170,7 @@ get_bancas_graduacao <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  filtro <- function(v) purrr::keep(v, ~ stringr::str_detect(.x,
-    stringr::regex(paste0(
-      "Monografia|Trabalho de Conclus[\u00e3a]o|TCC|",
-      "Especializa[\u00e7c][\u00e3a]o|Aperfei[\u00e7c]oamento|Gradua[\u00e7c][\u00e3a]o"
-    ), ignore_case = TRUE)) &&
-    !stringr::str_detect(.x, stringr::regex("Mestrad|Doutorad", ignore_case = TRUE)))
+  filtro <- function(v) purrr::keep(v, ~ identical(.banca_natureza(.x), "graduacao"))
 
   .bancas_do_tipo(doc, id_lattes, filtro)
 }

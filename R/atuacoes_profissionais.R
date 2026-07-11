@@ -48,7 +48,8 @@ get_atuacoes_profissionais <- function(caminho_html, encoding = "ISO-8859-1") {
     periodos[i] <- if (inherits(per_nd, "xml_missing")) NA_character_ else
       stringr::str_squish(rvest::html_text2(per_nd))
 
-    vinculos[i] <- stringr::str_squish(rvest::html_text2(nd))
+    vinculos[i] <- stringr::str_squish(rvest::html_text2(nd)) |>
+      stringr::str_remove("^V[\u00edi]nculo:\\s*")
   }
 
   tibble::tibble(

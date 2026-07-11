@@ -106,14 +106,22 @@
 # document (e.g. "Bancas" before "Orientacoesconcluidas") must not stop the
 # scan, so the stop node is resolved from the pre node's following axis.
 .transforms_entre_strict <- function(doc, pre_anchors, pos_anchors) {
+  .spans_entre_strict(doc, pre_anchors, pos_anchors) |>
+    rvest::html_text2() |>
+    unique()
+}
+
+# Node-level variant: returns the span nodes themselves, for callers that need
+# attributes (e.g. data-issn) besides the text.
+.spans_entre_strict <- function(doc, pre_anchors, pos_anchors) {
   pre_sel <- paste(sprintf("@name='%s'", pre_anchors), collapse = " or ")
   pre_node <- xml2::xml_find_first(doc, sprintf("//a[%s]", pre_sel))
-  if (inherits(pre_node, "xml_missing")) return(character(0))
+  if (inherits(pre_node, "xml_missing")) return(xml2::xml_find_all(doc, "//nada"))
 
   spans <- xml2::xml_find_all(
     pre_node, "following::span[contains(@class,'transform')]"
   )
-  if (length(spans) == 0) return(character(0))
+  if (length(spans) == 0) return(spans)
 
   pos_sel <- paste(sprintf("@name='%s'", pos_anchors), collapse = " or ")
   stop_node <- xml2::xml_find_first(pre_node, sprintf("following::a[%s]", pos_sel))
@@ -124,7 +132,7 @@
     spans <- spans[!(xml2::xml_path(spans) %in% xml2::xml_path(depois))]
   }
 
-  spans |> rvest::html_text2() |> unique()
+  spans
 }
 
 # Parse cvuri URL-encoded query string from Lattes article spans
@@ -161,13 +169,14 @@
 
 # Split "AUTORES . Titulo ..." at the boundary between the author block and
 # what follows. The boundary is the first standalone " . " (Lattes closes the
-# author list with a spaced period) or, for a single author written in full
-# ("PINHEIRO, Francisco Pablo Huascar Aragao. Titulo"), the first period that
-# follows a lowercase letter.
+# author list with a spaced period), a double period left when the last author
+# ends in an initial ("NAKANO, T. C.. Titulo"), or, for a single author written
+# in full ("PINHEIRO, Francisco Pablo Huascar Aragao. Titulo"), the first
+# period that follows a lowercase letter.
 .split_autores_titulo <- function(txt) {
   loc <- stringr::str_locate(
     txt,
-    "\\s+\\.\\s+|(?<=[a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7])\\.\\s+"
+    "\\s+\\.\\s+|\\.\\.\\s+|(?<=[a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7])\\.\\s+"
   )
   if (is.na(loc[1, 1])) {
     return(c(autores = NA_character_, resto = stringr::str_squish(txt)))
