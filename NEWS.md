@@ -14,7 +14,13 @@
   NA. It now parses the "Artigos aceitos para publicação" section, including
   the ISSN carried by the JCR image attribute.
 * `get_atuacoes_profissionais()`: the redundant "Vínculo:" prefix is no longer
-  kept in the `vinculo` column.
+  kept in the `vinculo` column, and the labelled fields of the vínculo cell
+  are now split into their own columns (`atividade`,
+  `enquadramento_funcional`, `carga_horaria`, `regime`); any other labelled
+  field is collected into `outras_informacoes`. Label matching is
+  case-insensitive and tolerates curricula downloaded with damaged accents
+  (U+FFFD), and fields left empty in the source ("Vínculo: ,") come back as NA
+  instead of leftover punctuation.
 * Fixed the `get_bancas_*()` family: tipo/programa/instituição are now parsed
   from the canonical "ANO. TIPO (PROGRAMA) - INSTITUIÇÃO" tail instead of
   keyword scans that could match words inside the title (e.g. "trabalhadores

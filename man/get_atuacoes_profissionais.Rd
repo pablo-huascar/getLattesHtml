@@ -12,11 +12,15 @@ get_atuacoes_profissionais(caminho_html, encoding = "ISO-8859-1")
 \item{encoding}{File encoding (default \code{"ISO-8859-1"}).}
 }
 \value{
-A tibble with columns: instituicao, periodo, vinculo, id_lattes.
+A tibble with columns: instituicao, periodo, vinculo, atividade,
+enquadramento_funcional, carga_horaria, regime, outras_informacoes,
+id_lattes.
 }
 \description{
-Returns one row per institutional bond (vínculo). Each row records the
-institution, period, and the raw vínculo text from Lattes.
+Returns one row per institutional bond (vínculo). The labelled fields of
+the vínculo cell ("Atividade", "Enquadramento Funcional", "Carga horária",
+"Regime") are split into their own columns; any other labelled field goes to
+"outras_informacoes".
 }
 \examples{
 html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")

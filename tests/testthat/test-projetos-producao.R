@@ -72,5 +72,23 @@ test_that("get_organizacao_eventos returns a tibble", {
 test_that("get_atuacoes_profissionais returns a tibble", {
   res <- get_atuacoes_profissionais(html)
   expect_s3_class(res, "tbl_df")
-  expect_true(all(c("instituicao", "vinculo", "id_lattes") %in% names(res)))
+  expect_true(all(c(
+    "instituicao", "vinculo", "atividade", "enquadramento_funcional",
+    "carga_horaria", "regime", "outras_informacoes", "id_lattes"
+  ) %in% names(res)))
+})
+
+test_that("get_atuacoes_profissionais splits the labelled vinculo fields", {
+  res <- get_atuacoes_profissionais(html)
+  # The bundled example has a single fully-populated vinculo cell:
+  # "Vínculo: Docente, Atividade: Ensino Superior, Enquadramento Funcional:
+  #  Professor Adjunto, Carga Horária: 40, Regime: Dedicacao Exclusiva."
+  expect_equal(res$vinculo[1], "Docente")
+  expect_equal(res$atividade[1], "Ensino Superior")
+  expect_equal(res$enquadramento_funcional[1], "Professor Adjunto")
+  expect_equal(res$carga_horaria[1], "40")
+  expect_equal(res$regime[1], "Dedicacao Exclusiva")
+  # No label text should leak into the values
+  expect_false(any(grepl("Funcional:|Carga|Regime:",
+    res$enquadramento_funcional, ignore.case = TRUE)))
 })
