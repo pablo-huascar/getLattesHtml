@@ -13,6 +13,10 @@
 * Implemented `get_artigos_aceitos()`, which was a stub that always returned
   NA. It now parses the "Artigos aceitos para publicação" section, including
   the ISSN carried by the JCR image attribute.
+* `get_artigos_publicados()`: when the structured `cvuri` attribute carries an
+  empty `titulo`/`nomePeriodico` (seen in older curricula), the title and
+  journal are now recovered from the visible citation text instead of
+  returning NA.
 * `get_atuacoes_profissionais()`: the redundant "Vínculo:" prefix is no longer
   kept in the `vinculo` column, and the labelled fields of the vínculo cell
   are now split into their own columns (`atividade`,

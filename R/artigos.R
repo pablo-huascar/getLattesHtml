@@ -1,5 +1,33 @@
+# Squish and drop symmetric surrounding double quotes some authors use
+.limpa_titulo <- function(x) {
+  if (is.na(x)) return(NA_character_)
+  x <- stringr::str_squish(x)
+  .nz(stringr::str_squish(stringr::str_remove_all(x, "^\"|\"$")))
+}
+
+# Titulo from the visible citation: some CVs leave titulo= empty in cvuri but
+# quote the title in the citation text.
+.titulo_do_texto <- function(txt) {
+  stringr::str_match(txt, "\"\\s*(.+?)\\s*\"")[, 2]
+}
+
+# Periodico from the visible citation tail: ". PERIODICO, v. X, p. A-B, ANO."
+.periodico_do_texto <- function(txt) {
+  m <- stringr::str_match(txt,
+    "[.\"]\\s*([^,]+),\\s*v\\.[^,]*,\\s*p\\.[^,]*,\\s*(?:1[89]|20)\\d{2}\\s*\\.?\\s*$")
+  per <- m[, 2]
+  if (!is.na(per)) {
+    per <- stringr::str_remove(per, "^[\\s.]+")
+    # Drop a leading page range left by free-form citations ("113-116.. NOME")
+    per <- stringr::str_remove(per, "^[\\d\\s-]+\\.+\\s*")
+  }
+  .nz(stringr::str_squish(per))
+}
+
 # Helper: parse one artigo-completo div → named character vector
 .parse_artigo_div <- function(div) {
+  txt <- div |> rvest::html_text2() |> stringr::str_squish()
+
   # Try cvuri attribute first (structured data)
   span_cit <- div |> rvest::html_element("span.citacoes[cvuri]")
   if (!inherits(span_cit, "xml_missing")) {
@@ -22,9 +50,15 @@
         .cvuri_field(qs, "anoPublicacao", "ano", "ano_artigo")
       }
 
+      # cvuri may carry empty titulo/nomePeriodico; fall back to the citation
+      titulo <- .cvuri_field(qs, "titulo")
+      if (is.na(titulo)) titulo <- .titulo_do_texto(txt)
+      periodico <- .cvuri_field(qs, "nomePeriodico")
+      if (is.na(periodico)) periodico <- .periodico_do_texto(txt)
+
       return(c(
-        titulo          = .cvuri_field(qs, "titulo"),
-        periodico       = .cvuri_field(qs, "nomePeriodico"),
+        titulo          = .limpa_titulo(titulo),
+        periodico       = periodico,
         issn            = .cvuri_field(qs, "issn"),
         volume          = .cvuri_field(qs, "volume"),
         numero          = .cvuri_field(qs, "issue", "numero"),
@@ -37,10 +71,9 @@
   }
 
   # Fallback: parse the visible citation text
-  txt <- div |> rvest::html_text2() |> stringr::str_squish()
   c(
-    titulo         = NA_character_,
-    periodico      = NA_character_,
+    titulo         = .limpa_titulo(.titulo_do_texto(txt)),
+    periodico      = .periodico_do_texto(txt),
     issn           = NA_character_,
     volume         = stringr::str_match(txt, "(?i)v\\.\\s*(\\d+)")[, 2],
     numero         = stringr::str_match(txt, "(?i)n\\.\\s*(\\d+)")[, 2],
