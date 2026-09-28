@@ -1,0 +1,8 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+
+# Real curricula used for local testing: personal data, never publish
+curriculos-html-para-teste/

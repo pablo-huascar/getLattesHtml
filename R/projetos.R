@@ -32,55 +32,37 @@ get_participacao_projeto <- function(caminho_html, encoding = "ISO-8859-1") {
   naturezas   <- character(length(pp_nos))
   integrantes_v <- character(length(pp_nos))
 
+  # The PP_ anchor and the cells of its project are siblings inside the
+  # section's data-cell; a project's cells run until the next sibling anchor.
+  # Tag each cell with the anchor that precedes it so fields never leak from
+  # one project into the next (or into the sections after the last project).
+  n_pp_antes <- "count(preceding-sibling::a[starts-with(@name,'PP_')])"
+
   for (i in seq_along(pp_nos)) {
     nd <- pp_nos[[i]]
+    k  <- xml2::xml_find_num(nd, n_pp_antes) + 1
+    celulas <- function(classe) xml2::xml_find_all(nd, sprintf(paste0(
+      "following-sibling::div[contains(@class,'%s')][%s = %d]",
+      "//div[contains(@class,'layout-cell-pad-5')]"), classe, n_pp_antes, k))
 
-    # Period: in the layout-cell-3 that is closest ancestor's sibling
-    per_nd <- xml2::xml_find_first(nd,
-      "ancestor::div[contains(@class,'layout-cell-3')][1]//b")
-    periodos[i] <- if (inherits(per_nd, "xml_missing")) NA_character_ else
-      stringr::str_squish(rvest::html_text2(per_nd))
+    # Period: the bold text of the first layout-cell-3 after the anchor
+    txts3 <- celulas("layout-cell-3") |> rvest::html_text2() |> stringr::str_squish()
+    periodos[i] <- .nz(txts3[nzchar(txts3)][1] %||% NA_character_)
 
-    # Title: the link text of the PP_ anchor itself, or sibling cell-9
-    tit_self <- rvest::html_text2(nd) |> stringr::str_squish()
-    if (nzchar(tit_self)) {
-      titulos[i] <- tit_self
-    } else {
-      tit_nd <- xml2::xml_find_first(nd,
-        "following::div[contains(@class,'layout-cell-9')][1]//div[contains(@class,'layout-cell-pad-5')]")
-      titulos[i] <- if (inherits(tit_nd, "xml_missing")) NA_character_ else
-        stringr::str_squish(rvest::html_text2(tit_nd))
-    }
-
-    # Remaining cell-9s for this project (up to the next PP_ anchor)
-    # Use "following" axis limited to before next PP_ anchor
-    if (i < length(pp_nos)) {
-      next_pp <- xml2::xml_find_first(pp_nos[[i]], sprintf(
-        "following::a[starts-with(@name,'PP_')][1]"
-      ))
-      if (!inherits(next_pp, "xml_missing")) {
-        nos9 <- xml2::xml_find_all(nd, paste0(
-          "following::div[contains(@class,'layout-cell-9')]",
-          "//div[contains(@class,'layout-cell-pad-5')]",
-          "[following::a[starts-with(@name,'PP_')]]"
-        ))
-      } else {
-        nos9 <- xml2::xml_find_all(nd,
-          "following::div[contains(@class,'layout-cell-9')]//div[contains(@class,'layout-cell-pad-5')]")
-      }
-    } else {
-      nos9 <- xml2::xml_find_all(nd,
-        "following::div[contains(@class,'layout-cell-9')]//div[contains(@class,'layout-cell-pad-5')]")
-    }
-
-    txts9 <- nos9 |> rvest::html_text2() |> stringr::str_squish()
+    txts9 <- celulas("layout-cell-9") |> rvest::html_text2() |> stringr::str_squish()
     txts9 <- txts9[nzchar(txts9)]
+
+    # Title: the link text of the PP_ anchor itself, or the first cell-9
+    tit_self <- rvest::html_text2(nd) |> stringr::str_squish()
+    titulos[i] <- if (nzchar(tit_self)) tit_self else .nz(txts9[1] %||% NA_character_)
+    txts9 <- txts9[-1]
 
     # All labels may share a single cell-9 block ("Descri\u00e7\u00e3o: ... Situa\u00e7\u00e3o: ...;
     # Natureza: .... Integrantes: ..."), so extract each value up to the next label.
     rotulos <- paste0(
-      "Descri[\u00e7c][\u00e3a]o|Situa[\u00e7c][\u00e3a]o|Natureza|",
-      "Integrantes|Membros|Financiador(?:es)?|N[\u00fau]mero de produ[\u00e7c][\u00f5o]es"
+      .rotulo("Descri\u00e7\u00e3o"), "|", .rotulo("Situa\u00e7\u00e3o"), "|Natureza|",
+      "Alunos envolvidos|Integrantes|Membros|Financiador(?:\\(es\\)|es)?|",
+      .rotulo("N\u00famero de produ\u00e7\u00f5es")
     )
     pega_campo <- function(rotulo, strip = "[;\\s]+$") {
       bloco <- txts9[stringr::str_detect(txts9,
@@ -92,8 +74,8 @@ get_participacao_projeto <- function(caminho_html, encoding = "ISO-8859-1") {
       .nz(stringr::str_remove(stringr::str_squish(m[, 2]), strip))
     }
 
-    descricoes[i]    <- pega_campo("Descri[\u00e7c][\u00e3a]o")
-    situacoes[i]     <- pega_campo("Situa[\u00e7c][\u00e3a]o", strip = "[;.\\s]+$")
+    descricoes[i]    <- pega_campo(.rotulo("Descri\u00e7\u00e3o"), strip = "[;\\s]+$|(?<=\\.)\\.+\\s*$")
+    situacoes[i]     <- pega_campo(.rotulo("Situa\u00e7\u00e3o"), strip = "[;.\\s]+$")
     naturezas[i]     <- pega_campo("Natureza", strip = "[;.\\s]+$")
     integrantes_v[i] <- pega_campo("(?:Integrantes|Membros)")
   }

@@ -19,7 +19,8 @@ id_lattes.
 \description{
 Returns one row per institutional bond (vínculo). The labelled fields of
 the vínculo cell ("Atividade", "Enquadramento Funcional", "Carga horária",
-"Regime") are split into their own columns; any other labelled field goes to
+"Regime") are split into their own columns; any other labelled field, and
+the free-text "Outras informações" row that may follow the vínculo, go to
 "outras_informacoes".
 }
 \examples{

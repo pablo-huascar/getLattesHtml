@@ -1,30 +1,59 @@
-# Helper: parse a generic technical production transform text
-.parse_prod_tecnica <- function(txt) {
-  txt <- stringr::str_remove(txt, "^\\d+\\.\\s*")
-  ano <- .parse_ano(txt)
+# Helper: parse a generic technical production transform text:
+# "AUTORES . Titulo. ANO. (TIPO)." / "AUTOR, Nome. Titulo. ANO; Tema: X. (TIPO)."
+# `tipo_padrao` (the subsection header) is used when the entry carries no
+# trailing "(TIPO)".
+.parse_prod_tecnica <- function(txt, tipo_padrao = NA_character_) {
+  txt <- stringr::str_squish(stringr::str_remove(txt, "^\\d+\\.\\s*"))
 
-  tipo <- stringr::str_match(txt, "\\(([^)]+)\\)")[, 2] |> stringr::str_squish()
+  at      <- .split_autores_titulo(txt)
+  autores <- at[["autores"]]
+  resto   <- at[["resto"]]
 
-  # Separate the author block from the title. In Lattes citation style the
-  # author list is terminated by a lone period surrounded by spaces (" . ").
-  # Author initials such as "F. P. H. A." never have a space *before* the
-  # period, so this split reliably isolates the authors whether names are
-  # abbreviated to initials or spelled out.
-  partes <- stringr::str_split_fixed(txt, "\\s+\\.\\s+", 2)
-  if (nzchar(partes[, 2])) {
-    autores <- stringr::str_squish(partes[, 1])
-    resto   <- partes[, 2]
+  tipo <- stringr::str_match(resto,
+    "\\(((?:[^()]|\\([^()]*\\))*)\\)\\s*\\.?\\s*$")[, 2]
+  tipo <- .nz(stringr::str_squish(tipo))
+  if (is.na(tipo)) tipo <- .nz(tipo_padrao)
+
+  # Title runs up to the first ". ANO" (the year closes the title even when
+  # the title itself contains a year, as in "Evento Polifonias 2021. 2021.")
+  m <- stringr::str_match(resto,
+    "^(.*?)(?:\\.|[?!]\\.?)\\s+((?:1[89]|20)\\d{2})(?=[.;,]|\\s*$)")
+  if (!is.na(m[, 1])) {
+    titulo <- m[, 2]
+    ano    <- m[, 3]
   } else {
-    autores <- NA_character_
-    resto   <- txt
+    titulo <- stringr::str_remove(resto, "\\s*\\((?:[^()]|\\([^()]*\\))*\\)\\s*\\.?\\s*$")
+    ano    <- .parse_ano(resto)
   }
-
-  titulo_raw <- sub(paste0("\\s*", if (!is.na(ano)) ano else "\\d{4}", ".*$"), "", resto) |>
-    stringr::str_squish()
-  titulo <- if (nzchar(titulo_raw %||% "")) titulo_raw else NA_character_
+  titulo <- .nz(stringr::str_squish(stringr::str_remove(titulo, "[.\\s]+$")))
 
   c(autores = autores, titulo = titulo, ano = ano, tipo = tipo)
 }
+
+.tibble_prod_tecnica <- function(it, id_lattes) {
+  parsed <- Map(.parse_prod_tecnica, it$textos, it$subsecao)
+  tibble::tibble(
+    autores   = unname(sapply(parsed, `[[`, "autores")),
+    titulo    = unname(sapply(parsed, `[[`, "titulo")),
+    ano       = unname(sapply(parsed, `[[`, "ano")),
+    tipo      = unname(sapply(parsed, `[[`, "tipo")),
+    id_lattes = rep(id_lattes, length(parsed))
+  )
+}
+
+# Sections of "Produção técnica" other than patents/registrations and the
+# catch-all "Demais tipos de produção técnica"
+.anchors_prod_tecnica <- c(
+  "ProducaoTecnica", "AssessoriaConsultoria", "SoftwareSemPatente",
+  "ProdutosTecnologicos", "ProcessosTecnicas", "TrabalhosTecnicos",
+  "EntrevistasMesasRedondas", "RedesSociais"
+)
+.anchors_patentes <- c(
+  "PatentesRegistros", "patente", "Patente", "programaComputador",
+  "ProgramaComputador", "desenhoIndustrial", "DesenhoIndustrial",
+  "marca", "Marca", "cultivar", "Cultivar", "topografiaCircuito",
+  "TopografiaCircuito"
+)
 
 #' Extract technical production
 #'
@@ -46,44 +75,15 @@ get_producao_tecnica <- function(caminho_html, encoding = "ISO-8859-1") {
     id_lattes = id_lattes
   )
 
-  # Collect from all technical-production subsections (stop before patent and demais sections)
-  # Subsection order: ProducaoTecnica \u2192 AssessoriaConsultoria \u2192 ProdutosTecnologicos \u2192
-  #   TrabalhosTecnicos \u2192 EntrevistasMesasRedondas \u2192 RedesSociais \u2192 DemaisProducaoTecnica
-  all_stops <- c("ProcessosTecnicas", "SoftwareSemPatente",
-                 "DemaisProducaoTecnica", "ProducaoArtisticaCultural",
-                 "DemaisTrabalhos", "Bancas")
-  txts <- unique(c(
-    .transforms_entre_strict(doc, c("ProducaoTecnica"),
-      c("AssessoriaConsultoria", "ProdutosTecnologicos", "TrabalhosTecnicos",
-        "EntrevistasMesasRedondas", "RedesSociais", all_stops)),
-    .transforms_entre_strict(doc, c("AssessoriaConsultoria"),
-      c("ProdutosTecnologicos", "TrabalhosTecnicos",
-        "EntrevistasMesasRedondas", "RedesSociais", all_stops)),
-    .transforms_entre_strict(doc, c("ProdutosTecnologicos"),
-      c("TrabalhosTecnicos", "EntrevistasMesasRedondas", "RedesSociais", all_stops)),
-    .transforms_entre_strict(doc, c("TrabalhosTecnicos"),
-      c("EntrevistasMesasRedondas", "RedesSociais", all_stops)),
-    .transforms_entre_strict(doc, c("EntrevistasMesasRedondas"),
-      c("RedesSociais", all_stops)),
-    .transforms_entre_strict(doc, c("RedesSociais"), all_stops)
-  ))
+  # Subsections: Assessoria e consultoria, Programas de computador sem
+  # registro, Produtos tecnol\u00f3gicos, Processos ou t\u00e9cnicas, Trabalhos
+  # t\u00e9cnicos, Entrevistas/mesas redondas, Redes sociais. Patents live in their
+  # own sections (get_patentes) and "Demais tipos" in
+  # get_outras_producoes_tecnicas().
+  it <- .itens_secao(doc, .anchors_prod_tecnica)
+  if (length(it$textos) == 0) return(na_ret)
 
-  # Exclude patent entries (covered by get_patentes)
-  txts <- txts[!stringr::str_detect(txts,
-    stringr::regex("Patente|Registro de (Programa|Software)|Modelo de Utilidade|Desenho Industrial",
-                   ignore_case = TRUE))]
-
-  if (length(txts) == 0) return(na_ret)
-
-  parsed <- lapply(txts, .parse_prod_tecnica)
-
-  tibble::tibble(
-    autores   = sapply(parsed, `[[`, "autores"),
-    titulo    = sapply(parsed, `[[`, "titulo"),
-    ano       = sapply(parsed, `[[`, "ano"),
-    tipo      = sapply(parsed, `[[`, "tipo"),
-    id_lattes = rep(id_lattes, length(parsed))
-  )
+  .tibble_prod_tecnica(it, id_lattes)
 }
 
 #' Extract other technical productions
@@ -104,25 +104,21 @@ get_outras_producoes_tecnicas <- function(caminho_html, encoding = "ISO-8859-1")
     id_lattes = id_lattes
   )
 
-  # In Lattes HTML: ... \u2192 DemaisProducaoTecnica \u2192 ProducaoArtisticaCultural/DemaisTrabalhos \u2192 Bancas
-  txts <- .transforms_entre_strict(doc,
-    c("DemaisProducaoTecnica", "OutrasProducoesTecnicas", "OutrosProducoesTecnicas"),
-    c("ProducaoArtisticaCultural", "DemaisTrabalhos", "Bancas",
-      "ParticipacaoBancasTrabalho", "Eventos", "ParticipacaoEventos"))
-  if (length(txts) == 0) return(na_ret)
+  it <- .itens_secao(doc,
+    c("DemaisProducaoTecnica", "OutrasProducoesTecnicas", "OutrosProducoesTecnicas"))
+  if (length(it$textos) == 0) return(na_ret)
 
-  parsed <- lapply(txts, .parse_prod_tecnica)
-
-  tibble::tibble(
-    autores   = sapply(parsed, `[[`, "autores"),
-    titulo    = sapply(parsed, `[[`, "titulo"),
-    ano       = sapply(parsed, `[[`, "ano"),
-    tipo      = sapply(parsed, `[[`, "tipo"),
-    id_lattes = rep(id_lattes, length(parsed))
-  )
+  # The subsection header is just "Demais tipos de produ\u00e7\u00e3o t\u00e9cnica"; it is not
+  # a useful default for tipo.
+  it$subsecao <- rep(NA_character_, length(it$textos))
+  .tibble_prod_tecnica(it, id_lattes)
 }
 
 #' Extract patents and software registrations
+#'
+#' Reads the "Patentes e registros" sections. Unregistered software and
+#' "Processos ou técnicas" are technical production in Lattes and are returned
+#' by [get_producao_tecnica()].
 #'
 #' @inheritParams get_id
 #' @return A tibble with columns: autores, titulo, ano, tipo, id_lattes.
@@ -140,28 +136,12 @@ get_patentes <- function(caminho_html, encoding = "ISO-8859-1") {
     id_lattes = id_lattes
   )
 
-  # Collect from patent subsections, stopping before next sibling subsection
-  txts <- unique(c(
-    .transforms_entre_strict(doc,
-      c("ProcessosTecnicas", "PatentesRegistros", "ProcessoOuTecnica"),
-      c("SoftwareSemPatente", "ProdutosTecnologicos", "AssessoriaConsultoria",
-        "TrabalhosTecnicos", "EntrevistasMesasRedondas", "RedesSociais",
-        "DemaisProducaoTecnica", "ProducaoArtisticaCultural", "DemaisTrabalhos", "Bancas")),
-    .transforms_entre_strict(doc,
-      c("SoftwareSemPatente"),
-      c("ProdutosTecnologicos", "AssessoriaConsultoria", "TrabalhosTecnicos",
-        "EntrevistasMesasRedondas", "RedesSociais", "DemaisProducaoTecnica",
-        "ProducaoArtisticaCultural", "DemaisTrabalhos", "Bancas"))
-  ))
-  if (length(txts) == 0) return(na_ret)
+  it <- .itens_secao(doc, .anchors_patentes)
+  if (length(it$textos) == 0) return(na_ret)
 
-  parsed <- lapply(txts, .parse_prod_tecnica)
-
-  tibble::tibble(
-    autores   = sapply(parsed, `[[`, "autores"),
-    titulo    = sapply(parsed, `[[`, "titulo"),
-    ano       = sapply(parsed, `[[`, "ano"),
-    tipo      = sapply(parsed, `[[`, "tipo"),
-    id_lattes = rep(id_lattes, length(parsed))
-  )
+  res <- .tibble_prod_tecnica(it, id_lattes)
+  # "... 2022, Brasil. Patente: Privilégio de Inovação. Número do registro: ..."
+  tipo_pat <- stringr::str_match(it$textos, "\\bPatente:\\s*([^.]+)")[, 2]
+  res$tipo <- ifelse(is.na(tipo_pat), res$tipo, stringr::str_squish(tipo_pat))
+  res
 }

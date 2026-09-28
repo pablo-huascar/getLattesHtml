@@ -6,31 +6,38 @@
   "Orientacoesemandamento", "OrientacoesEmAndamento"
 )
 
-# Anchors of sections that may follow the orientations block; used to stop
-# the "conclu\u00eddas" scan so bancas/eventos entries do not leak in.
-.anchors_pos_orientacoes <- c(
-  "ParticipacaoBancasTrabalho", "BancasTrabalho", "ParticipacaoBancasComissoes",
-  "Bancas", "EventosCongressos", "ParticipacaoEventos", "OrganizacaoEventos",
-  "Eventos", "OutrasInformacoesRelevantes", "PotencialInovacao"
-)
+# Helper: collect and classify orientation texts. Items are taken from the
+# orientation sections only; the situation comes from the group header
+# ("Orienta\u00e7\u00f5es e supervis\u00f5es conclu\u00eddas"/"em andamento") and the kind from
+# the subsection header ("Tese de doutorado", "Supervis\u00e3o de p\u00f3s-doutorado").
+# `sub_pat` selects by subsection; `filtro_fn` is the fallback for items
+# without a subsection header.
+.orientacoes_textos <- function(doc, sub_pat, filtro_fn) {
+  it <- .itens_secao(doc, c(.anchors_emandamento, .anchors_concluidas))
 
-# Helper: collect and classify orientation texts
-.orientacoes_textos <- function(doc, filtro_fn) {
-  # Use strict between to avoid mixing em andamento and conclu\u00eddas
-  em_and  <- .transforms_entre_strict(doc, .anchors_emandamento, .anchors_concluidas)
-  conclui <- .transforms_entre_strict(doc, .anchors_concluidas, .anchors_pos_orientacoes)
+  situacao <- ifelse(
+    !is.na(it$grupo) &
+      stringr::str_detect(it$grupo, stringr::regex("andamento", ignore_case = TRUE)),
+    "em andamento",
+    ifelse(
+      !is.na(it$grupo) &
+        stringr::str_detect(it$grupo, stringr::regex("conclu", ignore_case = TRUE)),
+      "conclu\u00edda",
+      ifelse(it$secao %in% .anchors_concluidas, "conclu\u00edda", "em andamento")
+    )
+  )
 
-  # Banca texts also mention "Disserta\u00e7\u00e3o (Mestrado ...)" etc.; drop them
-  sem_banca <- function(v) purrr::discard(v, ~ stringr::str_detect(.x,
-    stringr::regex("Participa[\u00e7c][\u00e3a]o em banca", ignore_case = TRUE)))
+  sub <- ifelse(is.na(it$subsecao), "", it$subsecao)
+  keep <- ifelse(
+    is.na(it$subsecao),
+    it$textos %in% filtro_fn(it$textos),
+    stringr::str_detect(sub, stringr::regex(sub_pat, ignore_case = TRUE))
+  )
 
-  em_and  <- filtro_fn(sem_banca(em_and))
-  conclui <- filtro_fn(sem_banca(conclui))
-
+  ordem <- order(situacao[keep] != "conclu\u00edda")
   list(
-    textos   = c(conclui, em_and),
-    situacao = c(rep("conclu\u00edda", length(conclui)),
-                 rep("em andamento", length(em_and)))
+    textos   = it$textos[keep][ordem],
+    situacao = situacao[keep][ordem]
   )
 }
 
@@ -55,13 +62,16 @@
 
   ano <- stringr::str_extract(txt, "\\b[12][0-9]{3}\\b")
 
+  # The course may hold one nested pair of parentheses:
+  # "Disserta\u00e7\u00e3o (Mestrado em Ci\u00eancias Biol\u00f3gicas (Biof\u00edsica)) - UFRJ"
+  parens <- "\\(((?:[^()]|\\([^()]*\\))*)\\)"
   curso_m <- stringr::str_match(txt,
-    paste0("(?i)", tipo_label, "\\s*\\(([^)]*)\\)"))
+    paste0("(?i)", tipo_label, "\\s*", parens))
   curso <- if (!is.na(curso_m[, 2])) stringr::str_squish(curso_m[, 2]) else NA_character_
 
   inst_m <- stringr::str_match(txt,
-    paste0("(?i)", tipo_label, "\\s*\\([^)]*\\)\\s*[-\u2013\u2014]\\s*([^.,;\\n]+)"))
-  instituicao <- if (!is.na(inst_m[, 2])) stringr::str_squish(inst_m[, 2]) else NA_character_
+    paste0("(?i)", tipo_label, "\\s*", parens, "\\s*[-\u2013\u2014]\\s*([^.,;\\n]+)"))
+  instituicao <- if (!is.na(inst_m[, 3])) stringr::str_squish(inst_m[, 3]) else NA_character_
 
   c(aluno = aluno, titulo = tit, ano = ano, curso = curso, instituicao = instituicao)
 }
@@ -89,7 +99,7 @@ get_orientacoes_doutorado <- function(caminho_html, encoding = "ISO-8859-1") {
   filtro <- function(v) purrr::keep(v, ~ stringr::str_detect(.x,
     stringr::regex("\\bTese\\s*\\(.*?Doutorado", ignore_case = TRUE)))
 
-  res <- .orientacoes_textos(doc, filtro)
+  res <- .orientacoes_textos(doc, "^Tese", filtro)
   if (length(res$textos) == 0) return(na_ret)
 
   parsed <- lapply(res$textos, .parse_orientacao, "(?i)Tese\\s*\\(", "Tese")
@@ -129,11 +139,12 @@ get_orientacoes_mestrado <- function(caminho_html, encoding = "ISO-8859-1") {
   filtro <- function(v) purrr::keep(v, ~ stringr::str_detect(.x,
     stringr::regex("\\bDisserta\\w*\\s*\\([^)]*Mestrad\\w*", ignore_case = TRUE)))
 
-  res <- .orientacoes_textos(doc, filtro)
+  res <- .orientacoes_textos(doc, "^Disserta", filtro)
   if (length(res$textos) == 0) return(na_ret)
 
+  # \S rather than \w: damaged downloads carry U+FFFD inside "Dissertacao"
   parsed <- lapply(res$textos, .parse_orientacao,
-    "(?i)Disserta\\w*\\s*\\(", "Disserta\\w*")
+    "(?i)Disserta\\S*\\s*\\(", "Disserta\\S*?")
   n <- length(parsed)
 
   tibble::tibble(
@@ -169,25 +180,25 @@ get_orientacoes_pos_doutorado <- function(caminho_html, encoding = "ISO-8859-1")
   filtro <- function(v) purrr::keep(v, ~ stringr::str_detect(.x,
     stringr::regex("P[o\u00f3]s.Doutorad|supervis\u00e3o|est[\u00e1a]gio.+p[o\u00f3]s", ignore_case = TRUE)))
 
-  res <- .orientacoes_textos(doc, filtro)
+  res <- .orientacoes_textos(doc, "p\\S{1,6}s.doutor|^Supervis", filtro)
   if (length(res$textos) == 0) return(na_ret)
 
+  # "Nome. [Titulo.] 2011. Universidade do Minho, [Agencia]. Supervisor."
+  # "Nome. In\u00edcio: 2023. Universidade X, Agencia."
   txts <- res$textos
-  aluno <- stringr::str_match(txts, "^\\s*([^\\.]+)\\.")[, 2] |> stringr::str_squish()
-  ano   <- .parse_ano(txts)
-
-  txt1 <- sub("^\\s*[^\\.]+\\.\\s*", "", txts)
-  titulo <- vapply(txt1, function(t) {
-    pos <- regexpr("\\b[12][0-9]{3}\\b", t)
-    tit <- if (pos > 0) substr(t, 1, pos - 1) else t
-    tit <- stringr::str_remove(stringr::str_squish(tit),
-      stringr::regex("[.;,:\\s]*(?:In[\u00edi]cio|Ano)[.;,:\\s]*$", ignore_case = TRUE))
-    stringr::str_replace(tit, "[.;,:\\s]+$", "")
-  }, character(1))
-
-  inst_m <- stringr::str_match(txts,
-    "(?i)(?:P[o\u00f3]s.Doutorad|est[\u00e1a]gio)[^-]*[-\u2013\u2014]\\s*([^.,;\\n]+)")
-  instituicao <- inst_m[, 2] |> stringr::str_squish()
+  m <- stringr::str_match(
+    stringr::str_remove(txts, "(?i)\\bIn\\S{1,3}cio\\s*:\\s*"),
+    paste0(
+      "^\\s*([^.]+)\\.\\s*",                # aluno
+      "(?:(.*?)[.\\s]+)?",                  # titulo (optional)
+      "((?:1[89]|20)\\d{2})\\.\\s*",        # ano
+      "([^,.]*)"                            # instituicao
+    )
+  )
+  aluno       <- .nz(stringr::str_squish(m[, 2]))
+  titulo      <- .nz(stringr::str_squish(m[, 3]))
+  ano         <- ifelse(is.na(m[, 4]), .parse_ano(txts), m[, 4])
+  instituicao <- .nz(stringr::str_squish(m[, 5]))
 
   n <- length(txts)
   tibble::tibble(

@@ -13,6 +13,8 @@ get_formacao_pos_doutorado(caminho_html, encoding = "ISO-8859-1")
 }
 \value{
 A tibble with columns: periodo, area, instituicao, id_lattes.
+\code{area} is the most specific knowledge area informed ("Área", or
+"Grande área" when that is all there is).
 }
 \description{
 Extract post-doctoral formation

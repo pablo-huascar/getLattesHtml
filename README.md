@@ -36,6 +36,12 @@ pak::pak("pablo-huascar/getLattesHtml")
 2. No navegador, salve a página como HTML (`Arquivo > Salvar como > Página da Web`).
 3. Aponte as funções do pacote para o arquivo salvo.
 
+O Lattes serve as páginas em ISO-8859-1 (padrão do argumento `encoding`).
+Arquivos que o navegador ou outra ferramenta regravou em UTF-8 são detectados
+automaticamente; se os acentos já tiverem sido perdidos no download (aparecendo
+como `�`), os rótulos das seções continuam sendo reconhecidos, mas o texto
+extraído mantém o caractere corrompido.
+
 ## Uso
 
 ``` r
@@ -74,6 +80,12 @@ artigos <- map(arquivos, get_artigos_publicados) |> list_rbind()
 | Bancas | `get_bancas_graduacao()`, `get_bancas_mestrado()`, `get_bancas_doutorado()` |
 | Produção técnica | `get_producao_tecnica()`, `get_outras_producoes_tecnicas()`, `get_patentes()` |
 | Projetos | `get_participacao_projeto()` |
+
+`get_patentes()` lê apenas a seção "Patentes e registros"; programas de
+computador sem registro e processos ou técnicas saem em
+`get_producao_tecnica()`, como na classificação do próprio Lattes.
+
+As mudanças de cada versão estão em [NEWS.md](NEWS.md).
 
 ## Licença
 

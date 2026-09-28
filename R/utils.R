@@ -7,8 +7,54 @@
   ifelse(is.na(x) | stringr::str_trim(x) == "", NA_character_, x)
 }
 
+# Lattes serves ISO-8859-1, but curricula re-saved by browsers or scrapers may
+# already be UTF-8 (sometimes with accents replaced by U+FFFD). Reading such a
+# file as ISO-8859-1 turns every accent into mojibake ("Ã§", "ï¿½"), so when
+# the default encoding is requested and the bytes are valid UTF-8 with
+# multibyte sequences, UTF-8 is used instead.
 .read_html_lattes <- function(caminho, encoding = "ISO-8859-1") {
+  if (identical(toupper(encoding), "ISO-8859-1") && is.character(caminho) &&
+      length(caminho) == 1 && file.exists(caminho)) {
+    bytes <- readBin(caminho, "raw", file.info(caminho)$size)
+    txt <- rawToChar(bytes[bytes != as.raw(0)])
+    if (any(bytes > as.raw(0x7f)) && validUTF8(txt)) encoding <- "UTF-8"
+  }
   rvest::read_html(caminho, encoding = encoding)
+}
+
+# Turn a label written with accents ("Descrição") into a regex that also
+# accepts the unaccented letter and U+FFFD, the replacement character left in
+# curricula downloaded with a broken encoding ("Descri��o").
+.rotulo <- function(x) {
+  base <- c(
+    "\u00e1" = "a", "\u00e0" = "a", "\u00e2" = "a", "\u00e3" = "a",
+    "\u00e9" = "e", "\u00ea" = "e", "\u00ed" = "i", "\u00f3" = "o",
+    "\u00f4" = "o", "\u00f5" = "o", "\u00fa" = "u", "\u00e7" = "c",
+    "\u00c1" = "A", "\u00c9" = "E", "\u00cd" = "I", "\u00d3" = "O",
+    "\u00da" = "U", "\u00c7" = "C"
+  )
+  chars <- strsplit(x, "", fixed = TRUE)[[1]]
+  paste(vapply(chars, function(ch) {
+    if (ch %in% names(base)) sprintf("[%s%s\ufffd]", ch, base[[ch]]) else ch
+  }, character(1)), collapse = "")
+}
+
+# Value cell (layout-cell-9) paired with a bold label (layout-cell-3) inside a
+# section, matched with .rotulo() so damaged accents still hit.
+.valor_rotulado <- function(secao, label) {
+  if (inherits(secao, "xml_missing") || length(secao) == 0) return(NA_character_)
+  bs <- xml2::xml_find_all(secao,
+    ".//div[contains(@class,'layout-cell-3')]//b")
+  txt <- stringr::str_squish(rvest::html_text2(bs))
+  hit <- which(stringr::str_detect(txt,
+    stringr::regex(paste0("^", .rotulo(label), "$"), ignore_case = TRUE)))
+  if (length(hit) == 0) return(NA_character_)
+  node <- xml2::xml_find_first(bs[[hit[1]]], paste0(
+    "ancestor::div[contains(@class,'layout-cell-3')]",
+    "/following-sibling::div[contains(@class,'layout-cell-9')][1]",
+    "//div[contains(@class,'layout-cell-pad-5')]"
+  ))
+  if (inherits(node, "xml_missing")) NA_character_ else rvest::html_text2(node)
 }
 
 .get_id_lattes <- function(doc) {
@@ -60,6 +106,62 @@
     }
   }
   unique(textos)
+}
+
+# Walk the document in order and label every span.transform with the section
+# anchor it falls under (the last named anchor before it, ignoring the PP_/LP_
+# item anchors), the group header (div.inst_back, e.g. "Orientações e
+# supervisões concluídas") and the subsection header (div.cita-artigos, e.g.
+# "Teses de doutorado"). A section ends at the next anchor with a different
+# name, so no stop-anchor list is needed; repeated anchors with the same name
+# (LivrosCapitulos, TrabalhosPublicadosAnaisCongresso) stay in one section.
+# In production sections the subsection header comes before its anchor, so the
+# subsection is only reset by a new group header.
+.itens_documento <- function(doc) {
+  ns <- xml2::xml_find_all(doc, paste(
+    "//a[@name and not(starts-with(@name,'PP_')) and not(starts-with(@name,'LP_'))]",
+    "//div[contains(@class,'inst_back') or contains(@class,'cita-artigos')]",
+    "//span[contains(@class,'transform')]",
+    sep = " | "
+  ))
+  tag <- xml2::xml_name(ns)
+  cls <- xml2::xml_attr(ns, "class")
+  n <- length(ns)
+  secao <- grupo <- subsecao <- rep(NA_character_, n)
+  s <- g <- ss <- NA_character_
+  for (i in seq_len(n)) {
+    if (tag[i] == "a") {
+      s <- xml2::xml_attr(ns[[i]], "name")
+    } else if (tag[i] == "div") {
+      h <- stringr::str_squish(rvest::html_text2(ns[[i]]))
+      if (grepl("inst_back", cls[i], fixed = TRUE)) {
+        g <- h
+        ss <- NA_character_
+      } else {
+        ss <- h
+      }
+    } else {
+      secao[i] <- s
+      grupo[i] <- g
+      subsecao[i] <- ss
+    }
+  }
+  eh_item <- tag == "span"
+  list(nos = ns[eh_item], secao = secao[eh_item],
+       grupo = grupo[eh_item], subsecao = subsecao[eh_item])
+}
+
+# Items (span.transform nodes, their text and headers) of the given sections.
+.itens_secao <- function(doc, anchors) {
+  it <- .itens_documento(doc)
+  keep <- which(it$secao %in% anchors)
+  list(
+    nos      = it$nos[keep],
+    textos   = stringr::str_squish(rvest::html_text2(it$nos[keep])),
+    secao    = it$secao[keep],
+    grupo    = it$grupo[keep],
+    subsecao = it$subsecao[keep]
+  )
 }
 
 # Get span.transform texts between cita-artigos subsection headers
@@ -171,25 +273,33 @@
 # what follows. The boundary is the first standalone " . " (Lattes closes the
 # author list with a spaced period), a double period left when the last author
 # ends in an initial ("NAKANO, T. C.. Titulo"), or, for a single author written
-# in full ("PINHEIRO, Francisco Pablo Huascar Aragao. Titulo"), the first
-# period that follows a lowercase letter.
+# in full ("PINHEIRO, Francisco Pablo Huascar Aragao. Titulo" or
+# "LARANJEIRA, PIRES. Titulo"), the first period that follows a lowercase
+# letter or a capitalised word of two or more letters.
 .split_autores_titulo <- function(txt) {
   loc <- stringr::str_locate(
     txt,
-    "\\s+\\.\\s+|\\.\\.\\s+|(?<=[a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7])\\.\\s+"
+    paste0(
+      "\\s+\\.\\s+|(?<=\\.)\\.\\s+",
+      "|(?<=[a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00e3\u00f5\u00e2\u00ea\u00f4\u00e0\u00e7])\\.\\s+(?![;,])",
+      # a single author written in full capitals: "LARANJEIRA, PIRES. Titulo"
+      "|(?<=\\p{Lu}{2})\\.\\s+(?![;,])"
+    )
   )
   if (is.na(loc[1, 1])) {
     return(c(autores = NA_character_, resto = stringr::str_squish(txt)))
   }
   autores <- stringr::str_sub(txt, 1, loc[1, 1] - 1)
   resto   <- stringr::str_sub(txt, loc[1, 2] + 1)
-  autores <- stringr::str_squish(stringr::str_remove(autores, "[.;\\s]+$"))
+  # Keep the period of a final initial ("FURTADO, L.A.R.")
+  autores <- stringr::str_squish(stringr::str_remove(autores, "[;,\\s]+$"))
   if (!nzchar(autores)) autores <- NA_character_
   c(autores = autores, resto = stringr::str_squish(resto))
 }
 
-# Edition marker as Lattes prints it: "1. ed.", "1ed.", "1a ed." etc.
-.ed_regex <- "(\\d+)\\s*[a\u00aa\u00b0]?\\s*\\.?\\s*[Ee]d\\."
+# Edition marker as Lattes prints it: "1. ed.", "1ed.", "1a ed." etc.; an
+# edition left blank is printed as "-ed." (group 1 is then NA).
+.ed_regex <- "(?:(\\d+)\\s*[a\u00aa\u00b0]?\\s*\\.?\\s*|(?<![\\w-])-\\s*)[Ee]d\\."
 
 # Parse "CIDADE: EDITORA, ANO" (any part may be empty)
 .parse_pub <- function(txt) {

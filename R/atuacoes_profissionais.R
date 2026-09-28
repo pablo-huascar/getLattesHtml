@@ -50,7 +50,8 @@
 #'
 #' Returns one row per institutional bond (vínculo). The labelled fields of
 #' the vínculo cell ("Atividade", "Enquadramento Funcional", "Carga horária",
-#' "Regime") are split into their own columns; any other labelled field goes to
+#' "Regime") are split into their own columns; any other labelled field, and
+#' the free-text "Outras informações" row that may follow the vínculo, go to
 #' "outras_informacoes".
 #'
 #' @inheritParams get_id
@@ -104,6 +105,26 @@ get_atuacoes_profissionais <- function(caminho_html, encoding = "ISO-8859-1") {
       stringr::str_squish(rvest::html_text2(per_nd))
 
     campos[[i]] <- .parse_vinculo(rvest::html_text2(nd))
+
+    # Free-text "Outras informações" row that may follow the vínculo row
+    rotulo_nd <- xml2::xml_find_first(nd, paste0(
+      "ancestor::div[contains(@class,'layout-cell-9')][1]",
+      "/following-sibling::div[1][contains(@class,'layout-cell-3')]//b"
+    ))
+    if (!inherits(rotulo_nd, "xml_missing") &&
+        stringr::str_detect(stringr::str_squish(rvest::html_text2(rotulo_nd)),
+          stringr::regex(paste0("^Outras ", .rotulo("informa\u00e7\u00f5es")), ignore_case = TRUE))) {
+      info_nd <- xml2::xml_find_first(rotulo_nd, paste0(
+        "ancestor::div[contains(@class,'layout-cell-3')][1]",
+        "/following-sibling::div[1][contains(@class,'layout-cell-9')]"
+      ))
+      info <- if (inherits(info_nd, "xml_missing")) NA_character_ else
+        .nz(stringr::str_squish(rvest::html_text2(info_nd)))
+      if (!is.na(info)) {
+        atual <- campos[[i]][["outras_informacoes"]]
+        campos[[i]][["outras_informacoes"]] <- if (is.na(atual)) info else paste(atual, info, sep = "; ")
+      }
+    }
   }
 
   tibble::tibble(

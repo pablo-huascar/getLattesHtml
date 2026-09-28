@@ -16,7 +16,8 @@ A tibble with columns: periodo, curso, instituicao, titulo,
 orientador, id_lattes.
 }
 \description{
-Extract undergraduate formation
+Also returns "Ensino Médio", "Aperfeiçoamento" and "Especialização"
+entries.
 }
 \examples{
 html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")

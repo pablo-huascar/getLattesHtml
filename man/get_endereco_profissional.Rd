@@ -12,11 +12,16 @@ get_endereco_profissional(caminho_html, encoding = "ISO-8859-1")
 \item{encoding}{File encoding (default \code{"ISO-8859-1"}).}
 }
 \value{
-A tibble with columns: logradouro, complemento, cep, bairro, cidade,
-uf, pais, caixa_postal, telefone, ramal, fax, endereco_eletronico, id_lattes.
+A tibble with columns: instituicao, logradouro, complemento, cep,
+bairro, cidade, uf, pais, caixa_postal, telefone, ramal, fax,
+endereco_eletronico, homepage, id_lattes.
 }
 \description{
-Extract professional address
+Lattes prints the professional address as a single free-text block, one
+item per line: institution, street, (complement,) neighbourhood,
+"CEP - Cidade, UF - Pais", optionally followed by "- Caixa-postal: N",
+and then labelled lines
+(Telefone, Ramal, Fax, URL da Homepage). This function splits that block.
 }
 \examples{
 html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")

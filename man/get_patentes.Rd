@@ -15,7 +15,9 @@ get_patentes(caminho_html, encoding = "ISO-8859-1")
 A tibble with columns: autores, titulo, ano, tipo, id_lattes.
 }
 \description{
-Extract patents and software registrations
+Reads the "Patentes e registros" sections. Unregistered software and
+"Processos ou técnicas" are technical production in Lattes and are returned
+by \code{\link[=get_producao_tecnica]{get_producao_tecnica()}}.
 }
 \examples{
 html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")

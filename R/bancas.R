@@ -29,7 +29,7 @@
 
   # Members: all text before "Participa\u00e7\u00e3o em banca de"
   m_part <- stringr::str_split_fixed(txt,
-    "(?i)Participa[\u00e7c][\u00e3a]o em banca de\\s+", 2)
+    paste0("(?i)", .rotulo("Participa\u00e7\u00e3o"), " em banca de\\s+"), 2)
   membros_banca <- stringr::str_squish(m_part[, 1]) |>
     stringr::str_remove("[;,\\s]+$") |>
     stringr::str_replace("\\.{2,}$", ".")
@@ -88,7 +88,26 @@
   NA_character_
 }
 
-.bancas_do_tipo <- function(doc, id_lattes, filtro_fn) {
+# Level of a banca from its subsection header ("Teses de doutorado",
+# "Qualificações de Mestrado", "Trabalhos de conclusão de curso de
+# graduação"...); entries under an unknown header fall back to the text.
+.banca_natureza_item <- function(txt, subsecao) {
+  if (!is.na(subsecao)) {
+    if (stringr::str_detect(subsecao, stringr::regex("doutor", ignore_case = TRUE))) {
+      return("doutorado")
+    }
+    if (stringr::str_detect(subsecao, stringr::regex("mestr", ignore_case = TRUE))) {
+      return("mestrado")
+    }
+    if (stringr::str_detect(subsecao,
+          stringr::regex("gradua|aperfei|especializ|monografia", ignore_case = TRUE))) {
+      return("graduacao")
+    }
+  }
+  .banca_natureza(txt)
+}
+
+.bancas_do_tipo <- function(doc, id_lattes, natureza) {
   na_ret <- tibble::tibble(
     membros_banca = NA_character_, candidato = NA_character_,
     titulo = NA_character_, ano = NA_character_,
@@ -96,13 +115,9 @@
     instituicao = NA_character_, id_lattes = id_lattes
   )
 
-  anchors_pre <- c("ParticipacaoBancasTrabalho", "BancasTrabalho")
-  anchors_pos <- c("EventosCongressos", "OrganizacaoEventos",
-                   "Orientacaoemandamento", "OrientacaoEmAndamento",
-                   "ParticipacaoBancasComissoes")
-
-  txts <- .transforms_entre(doc, anchors_pre, anchors_pos)
-  txts <- filtro_fn(txts)
+  it <- .itens_secao(doc, c("ParticipacaoBancasTrabalho", "BancasTrabalho"))
+  nat <- mapply(.banca_natureza_item, it$textos, it$subsecao, USE.NAMES = FALSE)
+  txts <- it$textos[nat %in% natureza]
   if (length(txts) == 0) return(na_ret)
 
   parsed <- lapply(txts, .parse_banca)
@@ -132,9 +147,7 @@ get_bancas_doutorado <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  filtro <- function(v) purrr::keep(v, ~ identical(.banca_natureza(.x), "doutorado"))
-
-  .bancas_do_tipo(doc, id_lattes, filtro)
+  .bancas_do_tipo(doc, id_lattes, "doutorado")
 }
 
 #' Extract master's examination boards
@@ -150,9 +163,7 @@ get_bancas_mestrado <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  filtro <- function(v) purrr::keep(v, ~ identical(.banca_natureza(.x), "mestrado"))
-
-  .bancas_do_tipo(doc, id_lattes, filtro)
+  .bancas_do_tipo(doc, id_lattes, "mestrado")
 }
 
 #' Extract undergraduate/specialization examination boards
@@ -170,7 +181,5 @@ get_bancas_graduacao <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  filtro <- function(v) purrr::keep(v, ~ identical(.banca_natureza(.x), "graduacao"))
-
-  .bancas_do_tipo(doc, id_lattes, filtro)
+  .bancas_do_tipo(doc, id_lattes, "graduacao")
 }

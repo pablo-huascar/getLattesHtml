@@ -3,3 +3,5 @@
 ^LICENSE\.md$
 ^curriculos-html-para-teste$
 ^\.github$
+^\.gitignore$
+^\.DS_Store$

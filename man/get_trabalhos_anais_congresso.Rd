@@ -15,7 +15,8 @@ get_trabalhos_anais_congresso(caminho_html, encoding = "ISO-8859-1")
 A tibble with columns: autores, titulo, ano, tipo, evento, id_lattes.
 }
 \description{
-Extract papers published in congress proceedings
+Covers the three proceedings subsections of Lattes; \code{tipo} tells them
+apart: "Trabalho completo", "Resumo expandido" or "Resumo".
 }
 \examples{
 html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")

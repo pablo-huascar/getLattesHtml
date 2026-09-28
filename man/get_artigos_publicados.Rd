@@ -12,8 +12,8 @@ get_artigos_publicados(caminho_html, encoding = "ISO-8859-1")
 \item{encoding}{File encoding (default \code{"ISO-8859-1"}).}
 }
 \value{
-A tibble with columns: ano, titulo, issn, periodico, volume, numero,
-pagina_inicial, pagina_final, doi, id_lattes.
+A tibble with columns: ano, autores, titulo, issn, periodico,
+volume, numero, pagina_inicial, pagina_final, doi, id_lattes.
 }
 \description{
 Extract published journal articles

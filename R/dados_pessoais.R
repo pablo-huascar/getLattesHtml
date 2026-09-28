@@ -41,17 +41,7 @@ get_dados_gerais <- function(caminho_html, encoding = "ISO-8859-1") {
     xpath = "//a[@name='Endereco']/following-sibling::div[contains(@class,'layout-cell')]"
   )
 
-  fetch_label <- function(secao, label) {
-    if (inherits(secao, "xml_missing") || length(secao) == 0) return(NA_character_)
-    node <- secao |> rvest::html_element(xpath = paste0(
-      ".//b[normalize-space(text())='", label, "']",
-      "/ancestor::div[contains(@class,'layout-cell-3')]",
-      "/following-sibling::div[contains(@class,'layout-cell-9')]",
-      "//div[contains(@class,'layout-cell-pad-5')]"
-    ))
-    if (inherits(node, "xml_missing") || length(node) == 0) NA_character_
-    else rvest::html_text2(node)
-  }
+  fetch_label <- .valor_rotulado
 
   nome <- .nz(fetch_label(secao_id, "Nome"))
 
@@ -89,9 +79,16 @@ get_dados_gerais <- function(caminho_html, encoding = "ISO-8859-1") {
 
 #' Extract professional address
 #'
+#' Lattes prints the professional address as a single free-text block, one
+#' item per line: institution, street, (complement,) neighbourhood,
+#' "CEP - Cidade, UF - Pais", optionally followed by "- Caixa-postal: N",
+#' and then labelled lines
+#' (Telefone, Ramal, Fax, URL da Homepage). This function splits that block.
+#'
 #' @inheritParams get_id
-#' @return A tibble with columns: logradouro, complemento, cep, bairro, cidade,
-#'   uf, pais, caixa_postal, telefone, ramal, fax, endereco_eletronico, id_lattes.
+#' @return A tibble with columns: instituicao, logradouro, complemento, cep,
+#'   bairro, cidade, uf, pais, caixa_postal, telefone, ramal, fax,
+#'   endereco_eletronico, homepage, id_lattes.
 #' @examples
 #' html <- system.file("extdata", "exemplo.html", package = "getLattesHtml")
 #' get_endereco_profissional(html)
@@ -100,47 +97,90 @@ get_endereco_profissional <- function(caminho_html, encoding = "ISO-8859-1") {
   doc <- .read_html_lattes(caminho_html, encoding)
   id_lattes <- .get_id_lattes(doc)
 
-  na_ret <- tibble::tibble(
-    logradouro = NA_character_, complemento = NA_character_,
-    cep = NA_character_, bairro = NA_character_,
-    cidade = NA_character_, uf = NA_character_,
-    pais = NA_character_, caixa_postal = NA_character_,
-    telefone = NA_character_, ramal = NA_character_,
-    fax = NA_character_, endereco_eletronico = NA_character_,
-    id_lattes = id_lattes
+  campos <- c(
+    instituicao = NA_character_, logradouro = NA_character_,
+    complemento = NA_character_, cep = NA_character_,
+    bairro = NA_character_, cidade = NA_character_,
+    uf = NA_character_, pais = NA_character_,
+    caixa_postal = NA_character_, telefone = NA_character_,
+    ramal = NA_character_, fax = NA_character_,
+    endereco_eletronico = NA_character_, homepage = NA_character_
   )
-
-  secao <- doc |> rvest::html_element(
-    xpath = "//a[@name='Endereco']/following-sibling::div[contains(@class,'data-cell')]"
-  )
-  if (inherits(secao, "xml_missing")) return(na_ret)
-
-  fetch_label <- function(label) {
-    node <- secao |> rvest::html_element(xpath = paste0(
-      ".//b[normalize-space(text())='", label, "']",
-      "/ancestor::div[contains(@class,'layout-cell-3')]",
-      "/following-sibling::div[contains(@class,'layout-cell-9')]",
-      "//div[contains(@class,'layout-cell-pad-5')]"
-    ))
-    if (inherits(node, "xml_missing") || length(node) == 0) NA_character_
-    else .nz(rvest::html_text2(node))
+  monta <- function(campos) {
+    tibble::as_tibble(as.list(campos)) |>
+      tibble::add_column(id_lattes = id_lattes)
   }
 
-  tibble::tibble(
-    logradouro        = fetch_label("Logradouro"),
-    complemento       = fetch_label("Complemento"),
-    cep               = fetch_label("CEP"),
-    bairro            = fetch_label("Bairro"),
-    cidade            = fetch_label("Cidade"),
-    uf                = fetch_label("UF"),
-    pais              = fetch_label("Pa\u00eds"),
-    caixa_postal      = fetch_label("Caixa Postal"),
-    telefone          = fetch_label("Telefone"),
-    ramal             = fetch_label("Ramal"),
-    fax               = fetch_label("Fax"),
-    endereco_eletronico = fetch_label("Endere\u00e7o eletr\u00f4nico"),
-    id_lattes = id_lattes
+  secao <- .secao_data_cell(doc, "Endereco")
+
+  # Older layout: one labelled row per field ("Logradouro", "CEP", ...)
+  rotulados <- c(
+    logradouro = "Logradouro", complemento = "Complemento", cep = "CEP",
+    bairro = "Bairro", cidade = "Cidade", uf = "UF", pais = "Pa\u00eds",
+    caixa_postal = "Caixa Postal", telefone = "Telefone", ramal = "Ramal",
+    fax = "Fax", endereco_eletronico = "Endere\u00e7o eletr\u00f4nico",
+    homepage = "Homepage"
   )
+  for (nm in names(rotulados)) {
+    campos[[nm]] <- .nz(stringr::str_squish(.valor_rotulado(secao, rotulados[[nm]])))
+  }
+
+  # Current layout: a single free-text block, one item per line
+  bloco <- .valor_rotulado(secao, "Endere\u00e7o Profissional")
+  if (is.na(.nz(stringr::str_squish(bloco))) || !all(is.na(campos))) {
+    return(monta(campos))
+  }
+
+  linhas <- stringr::str_squish(strsplit(bloco, "\n", fixed = TRUE)[[1]])
+  linhas <- linhas[nzchar(linhas)]
+
+  rotulos <- c(
+    telefone = "^Telefone\\s*:", ramal = "^Ramal\\s*:", fax = "^Fax\\s*:",
+    homepage = "^URL da Homepage\\s*:",
+    endereco_eletronico = paste0("^(?:", .rotulo("Endere\u00e7o eletr\u00f4nico"), "|E-?mail)\\s*:")
+  )
+  livres <- character(0)
+  for (ln in linhas) {
+    hit <- names(rotulos)[vapply(rotulos, function(p)
+      stringr::str_detect(ln, stringr::regex(p, ignore_case = TRUE)), logical(1))]
+    if (length(hit) > 0) {
+      campos[[hit[1]]] <- .nz(stringr::str_squish(sub("^[^:]*:\\s*", "", ln)))
+    } else {
+      livres <- c(livres, ln)
+    }
+  }
+
+  # "62010560 - Sobral, CE - Brasil - Caixa-postal: 123" (CEP is optional)
+  rx_local <- paste0(
+    "^(?:([0-9][0-9.-]{4,9})\\s*-\\s*)?",
+    "([^,]+),\\s*([A-Za-z]{2})\\s*-\\s*([^-]+?)",
+    "(?:\\s*-\\s*Caixa-?\\s*postal\\s*:\\s*(.+))?$"
+  )
+  i_loc <- which(stringr::str_detect(livres, stringr::regex(rx_local, ignore_case = TRUE)))
+  i_loc <- i_loc[i_loc > 1]
+  if (length(i_loc) > 0) {
+    i_loc <- i_loc[length(i_loc)]
+    m <- stringr::str_match(livres[i_loc], stringr::regex(rx_local, ignore_case = TRUE))
+    campos[["cep"]]          <- .nz(m[, 2])
+    campos[["cidade"]]       <- .nz(stringr::str_squish(m[, 3]))
+    campos[["uf"]]           <- toupper(m[, 4])
+    campos[["pais"]]         <- .nz(stringr::str_squish(m[, 5]))
+    campos[["caixa_postal"]] <- .nz(stringr::str_squish(m[, 6]))
+    meio <- livres[seq_len(i_loc - 1)][-1]
+  } else {
+    meio <- livres[-1]
+  }
+
+  campos[["instituicao"]] <- .nz(stringr::str_remove(livres[1], "\\.$"))
+  # Between institution and locality: street, [complement], neighbourhood
+  if (length(meio) >= 1) campos[["logradouro"]] <- meio[1]
+  if (length(meio) == 2) campos[["bairro"]] <- meio[2]
+  if (length(meio) >= 3) {
+    campos[["complemento"]] <- paste(meio[2:(length(meio) - 1)], collapse = "; ")
+    campos[["bairro"]] <- meio[length(meio)]
+  }
+
+  monta(campos)
 }
 
 #' Extract languages
@@ -187,7 +227,7 @@ get_idiomas <- function(caminho_html, encoding = "ISO-8859-1") {
     idioma     = nomes,
     compreende = parse_nivel(profs, "Compreende"),
     fala       = parse_nivel(profs, "Fala"),
-    le         = parse_nivel(profs, "L[e\u00ea]"),
+    le         = parse_nivel(profs, .rotulo("L\u00ea")),
     escreve    = parse_nivel(profs, "Escreve"),
     id_lattes  = rep(id_lattes, n)
   )
@@ -226,11 +266,12 @@ get_areas_atuacao <- function(caminho_html, encoding = "ISO-8859-1") {
     .nz(stringr::str_squish(m[, 2]))
   }
 
+  area_rx <- .rotulo("\u00e1rea")
   tibble::tibble(
     numero      = as.character(seq_along(txts)),
-    grande_area = extr(txts, "Grande [\u00e1a]rea"),
-    area        = extr(txts, "(?:Grande [\u00e1a]rea[^/]*/\\s*)?[\u00e1A]rea"),
-    subarea     = extr(txts, "Sub[\u00e1a]rea"),
+    grande_area = extr(txts, paste0("Grande ", area_rx)),
+    area        = extr(txts, paste0("(?<![Gg]rande )(?<![Ss]ub)", area_rx)),
+    subarea     = extr(txts, paste0("Sub", area_rx)),
     especialidade = extr(txts, "Especialidade"),
     id_lattes   = rep(id_lattes, length(txts))
   )
@@ -256,34 +297,43 @@ get_linha_pesquisa <- function(caminho_html, encoding = "ISO-8859-1") {
   secao <- .secao_data_cell(doc, "LinhaPesquisa")
   if (inherits(secao, "xml_missing")) return(na_ret)
 
-  txts9 <- secao |>
-    rvest::html_elements("div.layout-cell-9 div.layout-cell-pad-5") |>
-    rvest::html_text2() |> stringr::str_squish()
-  txts3 <- secao |>
-    rvest::html_elements("div.layout-cell-3 div.layout-cell-pad-5") |>
-    rvest::html_text2() |> stringr::str_squish()
+  # Cells come in (cell-3, cell-9) pairs: ("1.", LINHA), then an optional
+  # ("", "Objetivo: ...") that belongs to the line right before it.
+  celulas <- xml2::xml_find_all(secao,
+    "./div[contains(@class,'layout-cell-3') or contains(@class,'layout-cell-9')]")
+  if (length(celulas) == 0) return(na_ret)
+  eh9 <- stringr::str_detect(xml2::xml_attr(celulas, "class"), "layout-cell-9")
+  # Only the first line of a cell: the objetivo cell continues with
+  # "Grande área: ...", "Setores de atividade: ..." and "Palavras-chave: ..."
+  txt <- rvest::html_text2(celulas) |> stringr::str_trim() |>
+    stringr::str_extract("^[^\n]*") |> stringr::str_squish()
+  txt[is.na(txt)] <- ""
 
-  if (length(txts9) == 0) return(na_ret)
-
-  # Pairs alternate: (numero/empty, line_name), (empty, objetivo)
-  # Identify objetivo entries
-  eh_obj <- stringr::str_detect(txts9, stringr::regex("^Objetivo:", ignore_case = TRUE))
-
-  linhas   <- txts9[!eh_obj]
-  objetivos <- txts9[eh_obj] |>
-    stringr::str_remove(stringr::regex("^Objetivo:\\s*", ignore_case = TRUE))
-
-  numeros3 <- txts3[nzchar(txts3) & stringr::str_detect(txts3, "^\\d")]
-  numeros <- if (length(numeros3) >= length(linhas)) numeros3[seq_along(linhas)] else
-    as.character(seq_along(linhas))
+  rx_obj <- stringr::regex("^Objetivo\\s*:\\s*", ignore_case = TRUE)
+  numeros <- linhas <- objetivos <- character(0)
+  rotulo <- NA_character_
+  for (i in seq_along(celulas)) {
+    if (!eh9[i]) {
+      rotulo <- txt[i]
+    } else if (stringr::str_detect(txt[i], rx_obj)) {
+      if (length(linhas) > 0) {
+        objetivos[length(linhas)] <- stringr::str_remove(txt[i], rx_obj)
+      }
+    } else if (nzchar(txt[i])) {
+      linhas    <- c(linhas, txt[i])
+      numeros   <- c(numeros, stringr::str_remove(rotulo %||% "", "\\.\\s*$"))
+      objetivos <- c(objetivos, NA_character_)
+    }
+  }
 
   n <- length(linhas)
   if (n == 0) return(na_ret)
+  numeros <- ifelse(nzchar(numeros), numeros, as.character(seq_len(n)))
 
   tibble::tibble(
-    numero    = numeros[seq_len(n)],
+    numero    = numeros,
     linha     = linhas,
-    objetivo  = .fix_len(objetivos, n),
+    objetivo  = .nz(stringr::str_remove(stringr::str_squish(objetivos), "(?<=\\.)\\.+$")),
     id_lattes = rep(id_lattes, n)
   )
 }

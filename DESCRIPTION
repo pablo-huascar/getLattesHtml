@@ -1,6 +1,6 @@
 Package: getLattesHtml
 Title: Parse Lattes Curriculum Vitae from HTML Files
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: person("Francisco Pablo Huascar Aragão", "Pinheiro",
     email = "pablohuascar@gmail.com", role = c("aut", "cre"))
 Description: Extracts structured data from CNPq Lattes curriculum vitae HTML
@@ -16,7 +16,6 @@ URL: https://github.com/pablo-huascar/getLattesHtml
 BugReports: https://github.com/pablo-huascar/getLattesHtml/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Depends:
     R (>= 4.1.0)
 Imports:
@@ -29,3 +28,4 @@ Imports:
 Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0

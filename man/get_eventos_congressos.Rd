@@ -12,7 +12,8 @@ get_eventos_congressos(caminho_html, encoding = "ISO-8859-1")
 \item{encoding}{File encoding (default \code{"ISO-8859-1"}).}
 }
 \value{
-A tibble with columns: titulo, ano, tipo, id_lattes.
+A tibble with columns: evento, titulo (title of the work presented,
+when informed), ano, tipo, id_lattes.
 }
 \description{
 Extract participation in congresses and events
